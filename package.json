@@ -1,0 +1,8 @@
+{
+  "name": "exchange-ndr-handler",
+  "version": "0.1",
+  "main": "index.js",
+  "repository": "git@github.com:ref-app/exchange-ndr-handler.git",
+  "author": "Per Bergland <per@refapp.se>",
+  "license": "MIT"
+}
