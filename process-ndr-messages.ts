@@ -123,6 +123,20 @@ async function fetchItemByMessageId(
   }
 }
 
+// It’s pretty stupid that the error code is not a property of the message itself but
+// has to be retrieved from the body text
+function extractNdrErrorCode(body: string): string | undefined {
+  const matches = /Remote Server returned '([^']+)'/i.exec(body);
+  if (matches) {
+    const remoteResponse = matches[1];
+    const codeMatches = /#([45]\.[0-9]\.[0-9]{1,3})/.exec(remoteResponse);
+    if (codeMatches) {
+      return codeMatches[1];
+    }
+  }
+  return undefined;
+}
+
 async function processOneNdrItem(
   service: ews.ExchangeService,
   item: ews.Item,
@@ -133,15 +147,9 @@ async function processOneNdrItem(
       sensitivity: "base",
     })
   ) {
-    const matches = /Remote Server returned '([^']+)'/i.exec(
-      item.TextBody.Text
-    );
-    if (matches) {
-      const remoteResponse = matches[1];
-      const codeMatches = /#([45]\.[0-9]\.[0-9]{1,3})/.exec(remoteResponse);
-      if (codeMatches) {
-        writeProgress(`NDR RFC 3463 code: ${codeMatches[1]}`);
-      }
+    const errorCode = extractNdrErrorCode(item.TextBody.Text);
+    if (errorCode) {
+      writeProgress(`NDR RFC 3463 code: ${errorCode}`);
     }
   }
   const messageId = values.find(
@@ -153,17 +161,18 @@ async function processOneNdrItem(
 }
 
 async function processNdrMessages(service: ews.ExchangeService) {
+  // References:
   // https://stackoverflow.com/questions/12176360/get-original-message-headers-using-ews-for-bounced-emails
-  const sf = new ews.SearchFilter.IsEqualTo(
-    ews.ItemSchema.ItemClass,
-    "REPORT.IPM.Note.NDR"
-  );
+  // https://docs.microsoft.com/en-us/previous-versions/office/developer/exchange-server-2010/ee693615%28v%3dexchg.140%29
+  // kind:Report is not documented - found through trial and error
+  const category = "Processed";
+  const query = `kind:report AND (NOT category:${category})`;
   let offset = 0;
   do {
     const view = new ews.ItemView(10, offset);
     const found = await service.FindItems(
       ews.WellKnownFolderName.Inbox,
-      sf,
+      query,
       view
     );
     await processFoundItems(service, found.Items, processOneNdrItem);
