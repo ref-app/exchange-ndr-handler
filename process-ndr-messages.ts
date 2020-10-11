@@ -152,51 +152,28 @@ async function blockRecipients(
   recipients: ReadonlyArray<ews.EmailAddress>,
   config: Readonly<NdrProcessorConfig>
 ) {
-  const blockedFolder = await findOrCreateFolder(
+  const blockedSendersList = await findOrCreateContactGroup(
     service,
-    config.blockedRecipientsFolderName,
-    "contacts"
+    config.blockedRecipientsFolderName
   );
-  if (blockedFolder) {
-    const filter = new ews.SearchFilter.SearchFilterCollection(
-      ews.LogicalOperator.Or
-    );
-    filter.AddRange(
-      recipients.map(
-        (r) =>
-          new ews.SearchFilter.IsEqualTo(
-            ews.ContactSchema.EmailAddress1,
-            r.Address
-          )
-      )
-    );
-    const findResult = await service.FindItems(
-      blockedFolder.Id,
-      filter,
-      new ews.ItemView(recipients.length)
-    );
-    const foundContacts = await Promise.all(
-      findResult.Items.map((foundItem) =>
-        ews.Contact.Bind(service, foundItem.Id)
-      )
-    );
-    const foundEmailAddresses = _.flatMap(
-      foundContacts.map((contact) =>
-        contact.EmailAddresses.Entries.Values.map((v) => v.EmailAddress.Address)
-      )
+  if (blockedSendersList) {
+    const blockedSenders = collectionToArray(blockedSendersList.Members);
+    const foundEmailAddresses: ReadonlyArray<string> = blockedSenders.map(
+      (member) => member.AddressInformation.Address
     );
     writeProgress(
       "foundEmailAddresses: " + JSON.stringify(foundEmailAddresses)
     );
+    let changed = false;
     for (const recipient of recipients) {
       if (!foundEmailAddresses.includes(recipient.Address)) {
         writeProgress(`Saving new blocked contact ${recipient}`);
-        const newContact = new ews.Contact(service);
-        newContact.EmailAddresses[
-          ews.EmailAddressKey.EmailAddress1
-        ] = recipient;
-        await newContact.Save(blockedFolder.Id);
+        blockedSendersList.Members.AddOneOff(recipient.Name, recipient.Address);
+        changed = true;
       }
+    }
+    if (changed) {
+      await blockedSendersList.Update(ews.ConflictResolutionMode.AutoResolve);
     }
   }
 }
@@ -260,48 +237,57 @@ async function processOneNdrItem(
   return "unprocessed";
 }
 
-async function findOrCreateFolder(
-  service: ews.ExchangeService,
-  folderName: string,
-  kind: "messages" | "contacts"
-) {
-  const folderProps: {
-    [k in typeof kind]: {
-      root: ews.WellKnownFolderName;
-      factory: () => ews.Folder | ews.ContactsFolder;
-    };
-  } = {
-    contacts: {
-      root: ews.WellKnownFolderName.MsgFolderRoot,
-      factory: () => new ews.Folder(service),
-    },
-    messages: {
-      root: ews.WellKnownFolderName.Contacts,
-      factory: () => new ews.ContactsFolder(service),
-    },
-  };
+async function findOrCreateFolder(service: ews.ExchangeService, name: string) {
+  const rootFolder = ews.WellKnownFolderName.MsgFolderRoot;
   const filter = new ews.SearchFilter.IsEqualTo(
     ews.FolderSchema.DisplayName,
-    folderName
+    name
   );
-  const rootFolder = folderProps[kind].root;
   const foundFolders = await service.FindFolders(
     rootFolder,
     filter,
-    new ews.FolderView(1)
+    new ews.FolderView(2)
   );
   if (foundFolders.Folders.length > 1) {
-    writeError(`Found more than one folder named ${folderName}`);
+    writeError(`Found more than one folder named ${name}`);
     return undefined;
   } else if (foundFolders.Folders.length === 1) {
     return foundFolders.Folders[0];
   }
-  const createdFolder = folderProps[kind].factory();
-  createdFolder.DisplayName = folderName;
-  writeProgress(`Creating ${kind} folder ${folderName}`);
+  const createdFolder = new ews.Folder(service);
+  createdFolder.DisplayName = name;
+  writeProgress(`Creating folder ${name}`);
 
   await createdFolder.Save(rootFolder);
   return createdFolder;
+}
+
+async function findOrCreateContactGroup(
+  service: ews.ExchangeService,
+  name: string
+) {
+  const rootFolder = ews.WellKnownFolderName.Contacts;
+  const filter = new ews.SearchFilter.SearchFilterCollection(
+    ews.LogicalOperator.And,
+    [new ews.SearchFilter.IsEqualTo(ews.ContactGroupSchema.DisplayName, name)]
+  );
+  const found = await service.FindItems(
+    rootFolder,
+    filter,
+    new ews.ItemView(2)
+  );
+  if (found.Items.length > 1) {
+    writeError(`Found more than one contact group named ${name}`);
+    return undefined;
+  } else if (found.Items.length === 1) {
+    return await ews.ContactGroup.Bind(service, found.Items[0].Id);
+  }
+  const createdItem = new ews.ContactGroup(service);
+  createdItem.DisplayName = name;
+  writeProgress(`Creating contact group ${name}`);
+
+  await createdItem.Save(rootFolder);
+  return createdItem;
 }
 
 interface NdrProcessorConfig {
@@ -351,8 +337,7 @@ async function processNdrMessages(service: ews.ExchangeService) {
   }
   const processedFolder = await findOrCreateFolder(
     service,
-    processorConfig.processedFolderName,
-    "contacts"
+    processorConfig.processedFolderName
   );
   if (!processedFolder) {
     writeError(
