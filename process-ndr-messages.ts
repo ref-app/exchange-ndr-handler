@@ -1,23 +1,41 @@
 #!/usr/bin/env ts-node-script
 import * as ews from "ews-javascript-api";
 import * as _ from "lodash";
-import { withEwsConnection, writeProgress } from "./ews-connect";
+import axios from "axios";
+
+import {
+  getConfigFromEnvironmentVariable,
+  withEwsConnection,
+  writeError,
+  writeProgress,
+} from "./ews-connect";
+import { createMailjetEvent } from "./mailjet-event";
 
 type FieldType = "string" | "number" | "date";
 
+function notEmpty<TValue>(value: TValue | null | undefined): value is TValue {
+  return value !== null && value !== undefined;
+}
+
+/**
+ * Identity function to get a narrow field name type
+ */
+const toFieldList = <T extends string>(
+  ...items: ReadonlyArray<[T, number, FieldType]>
+) => items;
+
 // https://docs.microsoft.com/en-us/office/client-developer/outlook/mapi/pidtagoriginalmessageclass-canonical-property
 // https://docs.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxomsg/62366ac9-8c81-45f5-baa9-8b7bfd4db755
-
-const extraFields: [string, number, FieldType][] = [
+const extraFields = toFieldList(
   ["PidTagOriginalMessageClass", 0x004b, "string"],
   ["PidTagOriginalSubject", 0x0049, "string"],
   ["PidTagOriginalSubmitTime", 0x004e, "date"],
   ["PidTagOriginalMessageId", 0x1046, "string"],
-  // Would have been nice if the properties below actually existed on NDR items but no
+  // Would have been nice if the properties below actually existed on NDR items but nope
   ["PidTagNonDeliveryReportStatusCode", 0x0c20, "number"],
   ["PidTagNonDeliveryReportReasonCode", 0x0c04, "number"],
-  ["PidTagNonDeliveryReportDiagCode", 0x0c05, "number"],
-];
+  ["PidTagNonDeliveryReportDiagCode", 0x0c05, "number"]
+);
 
 const mapiPropTypes: { [k in FieldType]: ews.MapiPropertyType } = {
   date: ews.MapiPropertyType.SystemTime,
@@ -53,7 +71,7 @@ const props = new ews.PropertySet(
 type OutValue<T extends FieldType> = ews.IOutParam<mapiTypes[T]>;
 
 const initOutValue = <T extends FieldType>(t: T): OutValue<T> => {
-  return { outValue: null } as OutValue<T>;
+  return { outValue: null } as any; // Typings are a bit weird here but null seems to be expected
 };
 
 interface FieldValue {
@@ -62,16 +80,28 @@ interface FieldValue {
   value: OutValue<FieldType>;
 }
 
+function getItemExtendedProperties(item: ews.Item): ReadonlyArray<FieldValue> {
+  const values = mapiProps
+    .map(({ name, type, prop }): FieldValue | undefined => {
+      const value = initOutValue(type);
+      if (item.ExtendedProperties.TryGetValue(prop, value)) {
+        return { name, type, value };
+      }
+    })
+    .filter(notEmpty);
+  return values;
+}
+
 /**
  * Loads item properties and invokes an action
  */
-async function processFoundItems(
+async function xprocessFoundItems(
   service: ews.ExchangeService,
   items: ews.Item[],
   itemAction?: (
     service: ews.ExchangeService,
     item: ews.Item,
-    values: FieldValue[]
+    values: ReadonlyArray<FieldValue>
   ) => Promise<void>
 ) {
   await service.LoadPropertiesForItems(items, props);
@@ -79,32 +109,25 @@ async function processFoundItems(
   for (const item of items) {
     writeProgress("");
     writeProgress(`subject: ${item.Subject}`);
-    const allValues = mapiProps.map(({ name, type, prop }) => {
-      const value = initOutValue(type);
-      item.ExtendedProperties.TryGetValue(prop, value);
-      return { name, type, value };
-    });
+    const allValues = mapiProps
+      .map(({ name, type, prop }) => {
+        const value = initOutValue(type);
+        if (item.ExtendedProperties.TryGetValue(prop, value)) {
+          return { name, type, value };
+        }
+      })
+      .filter(notEmpty);
     if (itemAction) {
       await itemAction(service, item, allValues);
     }
   }
 }
 
-async function processOriginalMessageForNDR(
-  service: ews.ExchangeService,
-  item: ews.Item,
-  values: FieldValue[]
-) {
-  writeProgress("Found the original in SentItems!");
-  writeProgress(`Its unique id is ${item.Id.UniqueId}`);
-}
-
 async function fetchItemByMessageId(
   service: ews.ExchangeService,
   messageId: string
-) {
-  writeProgress("");
-  writeProgress(`Searching for ${messageId}`);
+): Promise<ews.Item | undefined> {
+  // Seems we can only use a (potentially slow) search filter to find an item based on its message id
   const messageIdFilter = new ews.SearchFilter.IsEqualTo(
     ews.EmailMessageSchema.InternetMessageId,
     _.escape(messageId)
@@ -115,12 +138,9 @@ async function fetchItemByMessageId(
     new ews.ItemView(10)
   );
   if (findResult.Items.length === 1) {
-    await processFoundItems(
-      service,
-      findResult.Items,
-      processOriginalMessageForNDR
-    );
+    return findResult.Items[0];
   }
+  return undefined;
 }
 
 // It’s pretty stupid that the error code is not a property of the message itself but
@@ -137,11 +157,32 @@ function extractNdrErrorCode(body: string): string | undefined {
   return undefined;
 }
 
+async function invokeWebhook(
+  ndrItem: ews.Item,
+  originalMessage: ews.Item,
+  errorCode: string,
+  webhookUrl: string
+): Promise<"success" | "failure"> {
+  // Mailjet-formatted callback content except the message ID is always a string
+  const content = createMailjetEvent(ndrItem, originalMessage, errorCode);
+  try {
+    const result = await axios.post(webhookUrl, content);
+    return "success";
+  } catch (e) {
+    return "failure";
+  }
+}
+
+/**
+ * Returns "processed" if the ndr item should be move to the Processed folder
+ * because are ready with it
+ */
 async function processOneNdrItem(
   service: ews.ExchangeService,
   item: ews.Item,
-  values: FieldValue[]
-) {
+  values: ReadonlyArray<FieldValue>,
+  config: NdrProcessorConfig
+): Promise<"processed" | "unprocessed"> {
   if (
     !item.ItemClass.localeCompare("Report.IPM.Note.NDR", undefined, {
       sensitivity: "base",
@@ -150,14 +191,57 @@ async function processOneNdrItem(
     const errorCode = extractNdrErrorCode(item.TextBody.Text);
     if (errorCode) {
       writeProgress(`NDR RFC 3463 code: ${errorCode}`);
+      const messageId = values.find(
+        ({ name }) => name === "PidTagOriginalMessageId"
+      )?.value.outValue;
+      if (messageId && typeof messageId === "string") {
+        const originalMessage = await fetchItemByMessageId(service, messageId);
+        if (originalMessage) {
+          const webhookResult = await invokeWebhook(
+            item,
+            originalMessage,
+            errorCode,
+            config.webhookUrl
+          );
+          if (webhookResult === "success") {
+            return "processed";
+          }
+        }
+      }
     }
   }
-  const messageId = values.find(
-    ({ name }) => name === "PidTagOriginalMessageId"
-  )?.value.outValue;
-  if (messageId && typeof messageId === "string") {
-    await fetchItemByMessageId(service, messageId);
+  return "unprocessed";
+}
+
+async function findOrCreateFolder(
+  service: ews.ExchangeService,
+  folderName: string
+) {
+  const filter = new ews.SearchFilter.IsEqualTo(
+    ews.FolderSchema.DisplayName,
+    folderName
+  );
+  const rootFolder = ews.WellKnownFolderName.MsgFolderRoot;
+  const foundFolders = await service.FindFolders(
+    rootFolder,
+    filter,
+    new ews.FolderView(1)
+  );
+  if (foundFolders.Folders.length > 1) {
+    writeError(`Found more than one folder named ${folderName}`);
+    return undefined;
+  } else if (foundFolders.Folders.length === 1) {
+    return foundFolders.Folders[0];
   }
+  const createdFolder = new ews.Folder(service);
+  createdFolder.DisplayName = folderName;
+  await createdFolder.Save(rootFolder);
+  return createdFolder;
+}
+
+interface NdrProcessorConfig {
+  processedFolderName: string;
+  webhookUrl: string;
 }
 
 async function processNdrMessages(service: ews.ExchangeService) {
@@ -165,9 +249,26 @@ async function processNdrMessages(service: ews.ExchangeService) {
   // https://stackoverflow.com/questions/12176360/get-original-message-headers-using-ews-for-bounced-emails
   // https://docs.microsoft.com/en-us/previous-versions/office/developer/exchange-server-2010/ee693615%28v%3dexchg.140%29
   // kind:Report is not documented - found through trial and error
-  const category = "Processed";
-  const query = `kind:report AND (NOT category:${category})`;
+  const query = `kind:report`;
   let offset = 0;
+
+  const processorConfig = getConfigFromEnvironmentVariable<NdrProcessorConfig>(
+    "NDR_PROCESSOR_CONFIG"
+  );
+  if (!processorConfig) {
+    writeError("Error: NDR_PROCESSOR_CONFIG environment variable must be set");
+    process.exit(4);
+  }
+  const processedFolder = await findOrCreateFolder(
+    service,
+    processorConfig.processedFolderName
+  );
+  if (!processedFolder) {
+    writeError(
+      "Could not find or create folder for processed items - aborting"
+    );
+    process.exit(2);
+  }
   do {
     const view = new ews.ItemView(10, offset);
     const found = await service.FindItems(
@@ -175,7 +276,20 @@ async function processNdrMessages(service: ews.ExchangeService) {
       query,
       view
     );
-    await processFoundItems(service, found.Items, processOneNdrItem);
+    if (found.Items.length > 0) {
+      await service.LoadPropertiesForItems(found.Items, props);
+      for (const item of found.Items) {
+        const processResult = await processOneNdrItem(
+          service,
+          item,
+          getItemExtendedProperties(item),
+          processorConfig
+        );
+        if (processResult === "processed") {
+          await item.Move(processedFolder.Id);
+        }
+      }
+    }
     if (!found.MoreAvailable) {
       break;
     }

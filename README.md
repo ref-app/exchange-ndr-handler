@@ -1,4 +1,6 @@
-# Why did we build this?
+# exchange-ndr-handler
+
+## Why did we build this?
 Because of privacy concerns and specifically concerns about third party governments being able to issue secret court orders to extract personal data, we were looking for a transactional mail service hosted in the EU by a company headquartered in the EU.
 
 Unfortunately, we couldn’t find any. All services seemed to be run by US companies (Mailjet seemed to be the last European supplier but it was gobbled up by US Mailgun in 2019).
@@ -9,7 +11,7 @@ Compared to the capabilities of normal Transactional Email API vendors, these se
 
 That’s where this component steps in to complete the picture.
 
-# What does it do?
+## What does it do?
 The core of this project is a script (written in Typescript) that handles non-deliverable messages found in an Exchange account inbox, e.g. "Recipient cannot be found".
 
 For each such item, the script performs a number of subtasks
@@ -18,8 +20,13 @@ For each such item, the script performs a number of subtasks
 * For permanent errors (error codes 5.x.x), it adds the To address to the Exchange address book with a Category BLOCKED (if it doesn’t already exist).
 * Finally, it moves the NDR message from Inbox to a folder "NDR Processed".
 
-## Installation
+## Installation and configuration
 The project is packaged as a Docker image ready to run, e.g. as a Cron job in a Kubernetes cluster.
+
+Download from docker hub:
+
+ref-app/XXXX (TODO)
+
 The following environment variables must be set for the script to run properly:
 
 ### EXCHANGE_CONFIG
@@ -31,7 +38,6 @@ Json document string
     "serviceUrl": "https://your.exchange-server.com/EWS/Exchange.asmx"
 }
 ```
-
 
 ## Run locally
 

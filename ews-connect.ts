@@ -8,6 +8,20 @@ export function writeProgress(message: string) {
   writeError(message);
 }
 
+export function getConfigFromEnvironmentVariable<T>(
+  name: string
+): T | undefined {
+  const configRaw = process.env[name];
+  if (configRaw) {
+    try {
+      // Schema validation left to receiver
+      const config: T = JSON.parse(configRaw);
+      return config;
+    } catch (e) {}
+  }
+  return undefined;
+}
+
 export function withEwsConnection(
   worker: (service: ews.ExchangeService) => Promise<void>
 ) {
@@ -16,14 +30,15 @@ export function withEwsConnection(
     password: string;
     serviceUrl: string;
   }
-
   const service = new ews.ExchangeService(ews.ExchangeVersion.Exchange2016);
-  const configRaw = process.env["EXCHANGE_CONFIG"];
-  if (!configRaw) {
+
+  const config = getConfigFromEnvironmentVariable<ExchangeConfig>(
+    "EXCHANGE_CONFIG"
+  );
+  if (!config) {
     writeError("Error: EXCHANGE_CONFIG environment variable must be set");
-    process.exit(-2);
+    process.exit(4);
   }
-  const config: ExchangeConfig = JSON.parse(configRaw);
 
   const username = config.username;
   const password = config.password;
