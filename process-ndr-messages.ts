@@ -10,6 +10,7 @@ import {
   writeProgress,
 } from "./ews-connect";
 import { createMailjetEvent } from "./mailjet-event";
+import { textChangeRangeNewSpan } from "typescript";
 
 type FieldType = "string" | "number" | "date";
 
@@ -154,7 +155,7 @@ async function blockRecipients(
   const blockedFolder = await findOrCreateFolder(
     service,
     config.blockedRecipientsFolderName,
-    ews.WellKnownFolderName.Contacts
+    "contacts"
   );
   if (blockedFolder) {
     const filter = new ews.SearchFilter.SearchFilterCollection(
@@ -262,12 +263,28 @@ async function processOneNdrItem(
 async function findOrCreateFolder(
   service: ews.ExchangeService,
   folderName: string,
-  rootFolder: ews.WellKnownFolderName
+  kind: "messages" | "contacts"
 ) {
+  const folderProps: {
+    [k in typeof kind]: {
+      root: ews.WellKnownFolderName;
+      factory: () => ews.Folder | ews.ContactsFolder;
+    };
+  } = {
+    contacts: {
+      root: ews.WellKnownFolderName.MsgFolderRoot,
+      factory: () => new ews.Folder(service),
+    },
+    messages: {
+      root: ews.WellKnownFolderName.Contacts,
+      factory: () => new ews.ContactsFolder(service),
+    },
+  };
   const filter = new ews.SearchFilter.IsEqualTo(
     ews.FolderSchema.DisplayName,
     folderName
   );
+  const rootFolder = folderProps[kind].root;
   const foundFolders = await service.FindFolders(
     rootFolder,
     filter,
@@ -279,8 +296,10 @@ async function findOrCreateFolder(
   } else if (foundFolders.Folders.length === 1) {
     return foundFolders.Folders[0];
   }
-  const createdFolder = new ews.Folder(service);
+  const createdFolder = folderProps[kind].factory();
   createdFolder.DisplayName = folderName;
+  writeProgress(`Creating ${kind} folder ${folderName}`);
+
   await createdFolder.Save(rootFolder);
   return createdFolder;
 }
@@ -333,7 +352,7 @@ async function processNdrMessages(service: ews.ExchangeService) {
   const processedFolder = await findOrCreateFolder(
     service,
     processorConfig.processedFolderName,
-    ews.WellKnownFolderName.MsgFolderRoot
+    "contacts"
   );
   if (!processedFolder) {
     writeError(

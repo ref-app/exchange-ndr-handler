@@ -52,9 +52,12 @@ export function withEwsConnection(
   worker(service).then(
     () => writeProgress("Success!"),
     (e) => {
-      writeError(`${e.message}`);
+      writeError(`Error: ${e.message}`);
       if (e.faultString) {
-        writeError(`${e.faultString.faultstring}`);
+        writeError(`Fault: ${e.faultString.faultstring}`);
+      }
+      if (e.stack) {
+        writeError(e.stack.toString());
       }
     }
   );
