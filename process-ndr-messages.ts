@@ -17,6 +17,10 @@ function notEmpty<TValue>(value: TValue | null | undefined): value is TValue {
   return value !== null && value !== undefined;
 }
 
+function isHardBounce(errorCode: string) {
+  return errorCode.startsWith("5.");
+}
+
 /**
  * Identity function to get a narrow field name type
  */
@@ -92,41 +96,10 @@ function getItemExtendedProperties(item: ews.Item): ReadonlyArray<FieldValue> {
   return values;
 }
 
-/**
- * Loads item properties and invokes an action
- */
-async function xprocessFoundItems(
-  service: ews.ExchangeService,
-  items: ews.Item[],
-  itemAction?: (
-    service: ews.ExchangeService,
-    item: ews.Item,
-    values: ReadonlyArray<FieldValue>
-  ) => Promise<void>
-) {
-  await service.LoadPropertiesForItems(items, props);
-
-  for (const item of items) {
-    writeProgress("");
-    writeProgress(`subject: ${item.Subject}`);
-    const allValues = mapiProps
-      .map(({ name, type, prop }) => {
-        const value = initOutValue(type);
-        if (item.ExtendedProperties.TryGetValue(prop, value)) {
-          return { name, type, value };
-        }
-      })
-      .filter(notEmpty);
-    if (itemAction) {
-      await itemAction(service, item, allValues);
-    }
-  }
-}
-
 async function fetchItemByMessageId(
   service: ews.ExchangeService,
   messageId: string
-): Promise<ews.Item | undefined> {
+): Promise<ews.EmailMessage | undefined> {
   // Seems we can only use a (potentially slow) search filter to find an item based on its message id
   const messageIdFilter = new ews.SearchFilter.IsEqualTo(
     ews.EmailMessageSchema.InternetMessageId,
@@ -138,7 +111,8 @@ async function fetchItemByMessageId(
     new ews.ItemView(10)
   );
   if (findResult.Items.length === 1) {
-    return findResult.Items[0];
+    const result = await ews.EmailMessage.Bind(service, findResult.Items[0].Id);
+    return result;
   }
   return undefined;
 }
@@ -172,6 +146,69 @@ async function invokeWebhook(
   }
 }
 
+async function blockRecipients(
+  service: ews.ExchangeService,
+  recipients: ReadonlyArray<ews.EmailAddress>,
+  config: Readonly<NdrProcessorConfig>
+) {
+  const blockedFolder = await findOrCreateFolder(
+    service,
+    config.blockedRecipientsFolderName,
+    ews.WellKnownFolderName.Contacts
+  );
+  if (blockedFolder) {
+    const filter = new ews.SearchFilter.SearchFilterCollection(
+      ews.LogicalOperator.Or
+    );
+    filter.AddRange(
+      recipients.map(
+        (r) =>
+          new ews.SearchFilter.IsEqualTo(
+            ews.ContactSchema.EmailAddress1,
+            r.Address
+          )
+      )
+    );
+    const findResult = await service.FindItems(
+      blockedFolder.Id,
+      filter,
+      new ews.ItemView(recipients.length)
+    );
+    const foundContacts = await Promise.all(
+      findResult.Items.map((foundItem) =>
+        ews.Contact.Bind(service, foundItem.Id)
+      )
+    );
+    const foundEmailAddresses = _.flatMap(
+      foundContacts.map((contact) =>
+        contact.EmailAddresses.Entries.Values.map((v) => v.EmailAddress.Address)
+      )
+    );
+    writeProgress(
+      "foundEmailAddresses: " + JSON.stringify(foundEmailAddresses)
+    );
+    for (const recipient of recipients) {
+      if (!foundEmailAddresses.includes(recipient.Address)) {
+        writeProgress(`Saving new blocked contact ${recipient}`);
+        const newContact = new ews.Contact(service);
+        newContact.EmailAddresses[
+          ews.EmailAddressKey.EmailAddress1
+        ] = recipient;
+        await newContact.Save(blockedFolder.Id);
+      }
+    }
+  }
+}
+
+function collectionToArray<T extends ews.ComplexProperty>(
+  collection: ews.ComplexPropertyCollection<T>
+): ReadonlyArray<T> {
+  const result = Array.from({ length: collection.Count }).map((n, i) =>
+    collection._getItem(i)
+  );
+  return result;
+}
+
 /**
  * Returns "processed" if the ndr item should be move to the Processed folder
  * because are ready with it
@@ -180,16 +217,18 @@ async function processOneNdrItem(
   service: ews.ExchangeService,
   item: ews.Item,
   values: ReadonlyArray<FieldValue>,
-  config: NdrProcessorConfig
+  config: Readonly<NdrProcessorConfig>
 ): Promise<"processed" | "unprocessed"> {
   if (
     !item.ItemClass.localeCompare("Report.IPM.Note.NDR", undefined, {
       sensitivity: "base",
     })
   ) {
+    writeProgress(`NDR item found with Subject: ${item.Subject}`);
+
     const errorCode = extractNdrErrorCode(item.TextBody.Text);
     if (errorCode) {
-      writeProgress(`NDR RFC 3463 code: ${errorCode}`);
+      // writeProgress(`NDR RFC 3463 code: ${errorCode}`);
       const messageId = values.find(
         ({ name }) => name === "PidTagOriginalMessageId"
       )?.value.outValue;
@@ -202,6 +241,14 @@ async function processOneNdrItem(
             errorCode,
             config.webhookUrl
           );
+          if (isHardBounce(errorCode)) {
+            await blockRecipients(
+              service,
+              collectionToArray(originalMessage.ToRecipients),
+              config
+            );
+          }
+
           if (webhookResult === "success") {
             return "processed";
           }
@@ -214,13 +261,13 @@ async function processOneNdrItem(
 
 async function findOrCreateFolder(
   service: ews.ExchangeService,
-  folderName: string
+  folderName: string,
+  rootFolder: ews.WellKnownFolderName
 ) {
   const filter = new ews.SearchFilter.IsEqualTo(
     ews.FolderSchema.DisplayName,
     folderName
   );
-  const rootFolder = ews.WellKnownFolderName.MsgFolderRoot;
   const foundFolders = await service.FindFolders(
     rootFolder,
     filter,
@@ -240,7 +287,27 @@ async function findOrCreateFolder(
 
 interface NdrProcessorConfig {
   processedFolderName: string;
+  blockedRecipientsFolderName: string;
   webhookUrl: string;
+}
+
+/**
+ * Searching by query may be faster but there seems to be a huge delay (more than 10 minutes, then I gave up) between e.g. moving items between folders in Outlook Web Access
+ * and when the items actually show up in a search so we use a filter because it seems reliable
+ */
+async function findItemsByQueryOrFilter(
+  service: ews.ExchangeService,
+  query: string,
+  filter: ews.SearchFilter,
+  view: ews.ItemView
+) {
+  //const result = service.FindItems(ews.WellKnownFolderName.Inbox, query, view);
+  const result = await service.FindItems(
+    ews.WellKnownFolderName.Inbox,
+    filter,
+    view
+  );
+  return result;
 }
 
 async function processNdrMessages(service: ews.ExchangeService) {
@@ -249,6 +316,11 @@ async function processNdrMessages(service: ews.ExchangeService) {
   // https://docs.microsoft.com/en-us/previous-versions/office/developer/exchange-server-2010/ee693615%28v%3dexchg.140%29
   // kind:Report is not documented - found through trial and error
   const query = `kind:report`;
+  const filter = new ews.SearchFilter.IsEqualTo(
+    ews.ItemSchema.ItemClass,
+    "REPORT.IPM.Note.NDR"
+  );
+
   let offset = 0;
 
   const processorConfig = getConfigFromEnvironmentVariable<NdrProcessorConfig>(
@@ -260,7 +332,8 @@ async function processNdrMessages(service: ews.ExchangeService) {
   }
   const processedFolder = await findOrCreateFolder(
     service,
-    processorConfig.processedFolderName
+    processorConfig.processedFolderName,
+    ews.WellKnownFolderName.MsgFolderRoot
   );
   if (!processedFolder) {
     writeError(
@@ -270,11 +343,7 @@ async function processNdrMessages(service: ews.ExchangeService) {
   }
   do {
     const view = new ews.ItemView(10, offset);
-    const found = await service.FindItems(
-      ews.WellKnownFolderName.Inbox,
-      query,
-      view
-    );
+    const found = await findItemsByQueryOrFilter(service, query, filter, view);
     if (found.Items.length > 0) {
       await service.LoadPropertiesForItems(found.Items, props);
       for (const item of found.Items) {

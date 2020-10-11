@@ -10,7 +10,7 @@ export function writeProgress(message: string) {
 
 export function getConfigFromEnvironmentVariable<T>(
   name: string
-): T | undefined {
+): Readonly<T> | undefined {
   const configRaw = process.env[name];
   if (configRaw) {
     try {
