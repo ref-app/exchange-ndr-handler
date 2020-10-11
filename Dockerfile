@@ -1,9 +1,17 @@
 FROM node:14.13.1
 
+LABEL Maintainer "Refapp - https://github.com/ref-app"
+
 RUN yarn global add ts-node typescript
 
-COPY package.json yarn.lock README.md SRC/
+WORKDIR /usr/src
 
-RUN cd SRC && yarn
+COPY package.json yarn.lock README.md ./
 
-COPY *.ts SRC/
+RUN yarn
+
+COPY *.ts ./
+
+ENTRYPOINT [ "/usr/local/bin/ts-node" ]
+
+CMD ["process-ndr-messages.ts"]
