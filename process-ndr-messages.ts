@@ -66,6 +66,7 @@ const extraProps = [
   ews.ItemSchema.TextBody,
   ews.ItemSchema.Body,
   ews.ItemSchema.ItemClass,
+  ews.EmailMessageSchema.ToRecipients,
   ...mapiProps.map(({ prop }) => prop),
 ];
 const props = new ews.PropertySet(
@@ -167,7 +168,9 @@ async function blockRecipients(
     let changed = false;
     for (const recipient of recipients) {
       if (!foundEmailAddresses.includes(recipient.Address)) {
-        writeProgress(`Saving new blocked contact ${recipient}`);
+        writeProgress(
+          `Saving new blocked contact ${recipient} to contact group`
+        );
         blockedSendersList.Members.AddOneOff(recipient.Name, recipient.Address);
         changed = true;
       }
@@ -203,10 +206,14 @@ async function processOneNdrItem(
     })
   ) {
     writeProgress(`NDR item found with Subject: ${item.Subject}`);
-
+    // Load as an email message to get the recipient list for the NDR because only those recipients
+    // failed
+    const ndrAsEmail = await ews.EmailMessage.Bind(service, item.Id);
+    /**
+     * NDR RFC 3463 code
+     */
     const errorCode = extractNdrErrorCode(item.TextBody.Text);
     if (errorCode) {
-      // writeProgress(`NDR RFC 3463 code: ${errorCode}`);
       const messageId = values.find(
         ({ name }) => name === "PidTagOriginalMessageId"
       )?.value.outValue;
@@ -222,7 +229,7 @@ async function processOneNdrItem(
           if (isHardBounce(errorCode)) {
             await blockRecipients(
               service,
-              collectionToArray(originalMessage.ToRecipients),
+              collectionToArray(ndrAsEmail.ToRecipients),
               config
             );
           }
