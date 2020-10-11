@@ -163,7 +163,6 @@ async function invokeWebhook(
   errorCode: string,
   webhookUrl: string
 ): Promise<"success" | "failure"> {
-  // Mailjet-formatted callback content except the message ID is always a string
   const content = createMailjetEvent(ndrItem, originalMessage, errorCode);
   try {
     const result = await axios.post(webhookUrl, content);

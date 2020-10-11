@@ -59,8 +59,44 @@ interface MailjetEvent {
   error: string;
 }
 
+function getMailjetErrorFieldsFromErrorCode(
+  errorCode: string
+): Pick<MailjetEvent, "event" | "hard_bounce" | "error_related_to" | "error"> {
+  const error = errorCode;
+  const hard_bounce = errorCode.startsWith("5.");
+  // Make more granular later
+  if (hard_bounce) {
+    return {
+      event: "hardbounced",
+      error_related_to: "recipient",
+      error,
+      hard_bounce,
+    };
+  } else {
+    return {
+      event: "softbounced",
+      error_related_to: "recipient",
+      error,
+      hard_bounce,
+    };
+  }
+}
+/**
+ *  Mailjet event-formatted callback content except that the message ID is always a string
+ * and we send the error code in the "error" field
+ */
 export function createMailjetEvent(
   ndrItem: ews.Item,
   originalItem: ews.Item,
   errorCode: string
-) {}
+) {
+  const time = ndrItem.DateTimeReceived.TotalMilliSeconds;
+  const errorFields = getMailjetErrorFieldsFromErrorCode(errorCode);
+  const result: MailjetEvent = {
+    ...errorFields,
+    time,
+    MessageID: originalItem.Id.UniqueId,
+    Message_GUID: "",
+  };
+  return result;
+}
