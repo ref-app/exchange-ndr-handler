@@ -1,4 +1,5 @@
 import * as ews from "ews-javascript-api";
+import { writeProgress } from "./ews-connect";
 
 // https://dev.mailjet.com/email/guides/webhooks/#event-types
 type MailjetMessageStatus =
@@ -64,17 +65,17 @@ function getMailjetErrorFieldsFromErrorCode(
 ): Pick<MailjetEvent, "event" | "hard_bounce" | "error_related_to" | "error"> {
   const error = errorCode;
   const hard_bounce = errorCode.startsWith("5.");
-  // Make more granular later
+  // Make more granular later to return e.g. "spam" as an event
   if (hard_bounce) {
     return {
-      event: "hardbounced",
+      event: "bounce",
       error_related_to: "recipient",
       error,
       hard_bounce,
     };
   } else {
     return {
-      event: "softbounced",
+      event: "bounce",
       error_related_to: "recipient",
       error,
       hard_bounce,
@@ -83,20 +84,23 @@ function getMailjetErrorFieldsFromErrorCode(
 }
 /**
  *  Mailjet event-formatted callback content except that the message ID is always a string
- * and we send the error code in the "error" field
+ * and we send the error code in the "error" field.
+ * Note that mailjet always sends an array of events, so we send out an array of one
  */
 export function createMailjetEvent(
   ndrItem: ews.Item,
   originalItem: ews.Item,
+  originalItemInternetMessageId: string,
   errorCode: string
 ) {
   const time = ndrItem.DateTimeReceived.TotalMilliSeconds;
   const errorFields = getMailjetErrorFieldsFromErrorCode(errorCode);
-  const result: MailjetEvent = {
+  const eventPayload: MailjetEvent = {
     ...errorFields,
     time,
-    MessageID: originalItem.Id.UniqueId,
+    MessageID: originalItemInternetMessageId,
     Message_GUID: "",
   };
+  const result = [eventPayload];
   return result;
 }

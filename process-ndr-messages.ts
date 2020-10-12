@@ -10,7 +10,6 @@ import {
   writeProgress,
 } from "./ews-connect";
 import { createMailjetEvent } from "./mailjet-event";
-import { textChangeRangeNewSpan } from "typescript";
 
 type FieldType = "string" | "number" | "date";
 
@@ -136,10 +135,17 @@ function extractNdrErrorCode(body: string): string | undefined {
 async function invokeWebhook(
   ndrItem: ews.Item,
   originalMessage: ews.Item,
+  originalInternetMessageId: string,
   errorCode: string,
   webhookUrl: string
 ): Promise<"success" | "failure"> {
-  const content = createMailjetEvent(ndrItem, originalMessage, errorCode);
+  // This is where we could create different kinds of payloads
+  const content = createMailjetEvent(
+    ndrItem,
+    originalMessage,
+    originalInternetMessageId,
+    errorCode
+  );
   try {
     const result = await axios.post(webhookUrl, content);
     return "success";
@@ -223,6 +229,7 @@ async function processOneNdrItem(
           const webhookResult = await invokeWebhook(
             item,
             originalMessage,
+            messageId,
             errorCode,
             config.webhookUrl
           );

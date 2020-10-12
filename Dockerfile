@@ -10,8 +10,9 @@ COPY package.json yarn.lock README.md ./
 
 RUN yarn
 
-COPY *.ts ./
-
 ENTRYPOINT [ "/usr/local/bin/ts-node" ]
 
 CMD ["process-ndr-messages.ts"]
+
+# These files is most likely to change often so put it last in the Dockerfile for caching reasons
+COPY *.ts ./
