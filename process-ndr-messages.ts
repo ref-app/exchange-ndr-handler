@@ -155,7 +155,7 @@ async function blockRecipients(
 ) {
   const blockedSendersList = await findOrCreateContactGroup(
     service,
-    config.blockedRecipientsFolderName
+    config.blockedRecipientsListName ?? "Blocked Recipients"
   );
   if (blockedSendersList) {
     const blockedSenders = collectionToArray(blockedSendersList.Members);
@@ -276,7 +276,13 @@ async function findOrCreateContactGroup(
   const rootFolder = ews.WellKnownFolderName.Contacts;
   const filter = new ews.SearchFilter.SearchFilterCollection(
     ews.LogicalOperator.And,
-    [new ews.SearchFilter.IsEqualTo(ews.ContactGroupSchema.DisplayName, name)]
+    [
+      new ews.SearchFilter.IsEqualTo(ews.ContactGroupSchema.DisplayName, name),
+      new ews.SearchFilter.IsEqualTo(
+        ews.ContactGroupSchema.ItemClass,
+        "IPM.DistList"
+      ),
+    ]
   );
   const found = await service.FindItems(
     rootFolder,
@@ -298,8 +304,8 @@ async function findOrCreateContactGroup(
 }
 
 interface NdrProcessorConfig {
-  processedFolderName: string;
-  blockedRecipientsFolderName: string;
+  processedFolderName?: string;
+  blockedRecipientsListName?: string;
   webhookUrl: string;
 }
 
@@ -344,7 +350,7 @@ async function processNdrMessages(service: ews.ExchangeService) {
   }
   const processedFolder = await findOrCreateFolder(
     service,
-    processorConfig.processedFolderName
+    processorConfig.processedFolderName ?? "NDR Processed"
   );
   if (!processedFolder) {
     writeError(

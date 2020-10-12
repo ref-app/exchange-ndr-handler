@@ -16,9 +16,9 @@ The core of this project is a script (written in Typescript) that handles non-de
 
 For each such item, the script performs a number of subtasks
 
-* It searches for the original item in the "Sent Items" folder and if it is found, it calls a configurable webhook with a payload that includes the original message UniqueId and the error code.
-* For permanent errors (error codes 5.x.x), it adds the To address to the Exchange address book with a Category BLOCKED (if it doesn’t already exist).
-* Finally, it moves the NDR message from Inbox to a folder "NDR Processed".
+* It searches for the original item in the "Sent Items" folder and if it is found, it calls a configurable webhook with a payload that includes the original message UniqueId and the error code. The payload is formatted as a Mailjet event.
+* For permanent errors (error codes 5.x.x), it adds the To address to a named distribution list so that your code that sends mail can do a lookup there and fail early instead of resending to the same incorrect email address and damaging your reputation
+* Finally, it moves the NDR message from Inbox to a folder named "NDR Processed" (configurable).
 
 ## Installation and configuration
 The project is packaged as a Docker image ready to run, e.g. as a Cron job in a Kubernetes cluster.
@@ -36,6 +36,16 @@ Json document string
     "username": "username",
     "password": "password",
     "serviceUrl": "https://your.exchange-server.com/EWS/Exchange.asmx"
+}
+```
+
+### NDR_PROCESSOR_CONFIG
+Json document string
+```
+{
+    "processedFolderName": "NDR Processed",
+    "blockedRecipientsListName": "Blocked Recipients",
+    "webhookUrl": "https://webhook-receiver"
 }
 ```
 
