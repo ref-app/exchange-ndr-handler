@@ -25,7 +25,7 @@ The project is packaged as a Docker image ready to run, e.g. as a Cron job in a 
 
 Download from docker hub:
 
-ref-app/XXXX (TODO)
+twrefapp/exchange-ndr-handler:latest
 
 The following environment variables must be set for the script to run properly:
 
