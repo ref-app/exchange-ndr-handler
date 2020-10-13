@@ -1,4 +1,4 @@
-FROM node:14.13.1
+FROM node:14.13.1-alpine3.12
 
 LABEL Maintainer "Refapp - https://github.com/ref-app"
 
