@@ -64,4 +64,4 @@ yarn install
 
 ## Build
 
-docker build .
+build/build-image.sh

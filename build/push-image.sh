@@ -1,3 +1,8 @@
 #!/usr/bin/env bash
-docker tag exchange-ndr-handler:latest twrefapp/exchange-ndr-handler:latest
-docker push twrefapp/exchange-ndr-handler:latest
+DIRECTORY=$(cd `dirname $0` && pwd)
+VERSION=$(cat "${DIRECTORY}/../VERSION")
+
+for tag in latest ${VERSION}; do 
+    docker tag exchange-ndr-handler:${tag} twrefapp/exchange-ndr-handler:${tag}
+    docker push twrefapp/exchange-ndr-handler:${tag}
+done
