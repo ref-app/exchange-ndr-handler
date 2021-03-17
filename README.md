@@ -65,3 +65,9 @@ yarn install
 ## Build
 
 build/build-image.sh
+
+## Bonus
+
+I recently added another "mode" for this code - to send notifications about new mail messages in the inbox.
+
+It is still experimental and is invoked by running the inbox-notification.ts script instead of process-ndr-messages.ts
