@@ -12,7 +12,11 @@ async function invokeWebhook(
   webhookUrl: string
 ): Promise<"success" | "failure"> {
   // This is where we could create different kinds of payloads
-  const content = { message: "You have new support mail", numNewMessages };
+  const content = {
+    message: "You have new support mail",
+    numNewMessages,
+    text: `You have ${numNewMessages} new messages in the sec-support mailbox`,
+  };
   console.info(content);
   try {
     await axios.post(webhookUrl, content);
