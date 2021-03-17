@@ -85,4 +85,5 @@ async function processInbox(service: ews.ExchangeService) {
   }
 }
 
+console.info("inbox-notification");
 withEwsConnection(processInbox);

@@ -389,4 +389,5 @@ async function processNdrMessages(service: ews.ExchangeService) {
   } while (true);
 }
 
+console.info("process-ndr-messages");
 withEwsConnection(processNdrMessages);

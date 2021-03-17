@@ -10,9 +10,11 @@ COPY package.json yarn.lock README.md ./
 
 RUN yarn
 
-ENTRYPOINT [ "/usr/local/bin/ts-node" ]
+# So we can override it when building the image
+ARG SCRIPT=process-ndr-messages.ts
+ENV SCRIPT $SCRIPT
 
-CMD ["process-ndr-messages.ts"]
+CMD ["sh","-c","./${SCRIPT}"]
 
 # These files is most likely to change often so put it last in the Dockerfile for caching reasons
 COPY *.ts ./
