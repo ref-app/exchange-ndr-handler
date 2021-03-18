@@ -26,6 +26,8 @@ The project is packaged as a Docker image ready to run, e.g. as a Cron job in a 
 Download from docker hub:
 
 twrefapp/exchange-ndr-handler:latest
+OR
+twrefapp/exchange-ndr-handler:<version> for a stable version
 
 The following environment variables must be set for the script to run properly:
 
@@ -66,8 +68,37 @@ yarn install
 
 build/build-image.sh
 
-## Bonus
+# Bonus alternate mode - inbox notifications
 
-I recently added another "mode" for this code - to send notifications about new mail messages in the inbox.
+The inbox-notification.ts script processes the Exchange inbox and invokes a webhook if there
+are any new messages. New here means that the "processed" category has not been applied to an email.
 
-It is still experimental and is invoked by running the inbox-notification.ts script instead of process-ndr-messages.ts
+## Installation and configuration
+The project is packaged as a Docker image ready to run, e.g. as a Cron job in a Kubernetes cluster.
+
+Download from docker hub:
+
+twrefapp/inbox-notifier:latest
+OR
+twrefapp/inbox-notifier:<version> for a stable version
+
+The following environment variables must be set for the script to run properly:
+
+### EXCHANGE_CONFIG
+Json document string
+```
+{
+    "username": "username",
+    "password": "password",
+    "serviceUrl": "https://your.exchange-server.com/EWS/Exchange.asmx"
+}
+```
+
+### INBOX_NOTIFICATION_CONFIG
+Json document string
+```
+{
+    "processedTag": "Notified",
+    "mailboxName": "ACME Support",
+    "webhookUrl": "https://webhook-receiver"
+}
