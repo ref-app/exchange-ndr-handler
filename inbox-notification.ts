@@ -1,6 +1,7 @@
 #!/usr/bin/env ts-node-script
 import axios from "axios";
 import * as ews from "ews-javascript-api";
+import { URL } from "url";
 import {
   getConfigFromEnvironmentVariable,
   withEwsConnection,
@@ -9,13 +10,17 @@ import {
 
 async function invokeWebhook(
   numNewMessages: number,
-  webhookUrl: string
+  webhookUrl: string,
+  mailboxName: string,
+  mailboxLink: string
 ): Promise<"success" | "failure"> {
   // This is where we could create different kinds of payloads
   const content = {
     message: "You have new support mail",
     numNewMessages,
-    text: `You have ${numNewMessages} new messages in the sec-support mailbox`,
+    text: `You have ${numNewMessages} new message${
+      numNewMessages > 1 ? "s" : ""
+    } in the ${mailboxName} mailbox - click here to access: ${mailboxLink}`,
   };
   console.info(content);
   try {
@@ -29,6 +34,7 @@ async function invokeWebhook(
 interface InboxNotificationConfig {
   processedTag: string;
   webhookUrl: string;
+  mailboxName: string;
 }
 /**
  * Searching by query may be faster but there seems to be a huge delay (more than 10 minutes, then I gave up) between e.g. moving items between folders in Outlook Web Access
@@ -85,7 +91,14 @@ async function processInbox(service: ews.ExchangeService) {
     offset = found.NextPageOffset;
   } while (true);
   if (numNew > 0) {
-    await invokeWebhook(numNew, processorConfig.webhookUrl);
+    const mailboxLink = new URL(service.Url.AbsoluteUri);
+    mailboxLink.pathname = "/owa";
+    await invokeWebhook(
+      numNew,
+      processorConfig.webhookUrl,
+      processorConfig.mailboxName,
+      mailboxLink.toString()
+    );
   }
 }
 
