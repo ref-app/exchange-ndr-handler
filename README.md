@@ -16,7 +16,7 @@ The core of this project is a script (written in Typescript) that handles non-de
 
 For each such item, the script performs a number of subtasks
 
-* It searches for the original item in the "Sent Items" folder and if it is found, it calls a configurable webhook with a payload that includes the original message UniqueId and the error code. The payload is formatted as a Mailjet event.
+* It searches for the original item in the "Sent Items" folder and if it is found, it calls a configurable webhook with a payload that includes the InternetMessageID of the original message and the error code. The payload is formatted as a Mailjet event.
 * For permanent errors (error codes 5.x.x), it adds the To address to a named distribution list so that your code that sends mail can do a lookup there and fail early instead of resending to the same incorrect email address and damaging your reputation
 * Finally, it moves the NDR message from Inbox to a folder named "NDR Processed" (configurable).
 
@@ -27,7 +27,7 @@ Download from docker hub:
 
 twrefapp/exchange-ndr-handler:latest
 OR
-twrefapp/exchange-ndr-handler:<version> for a stable version
+twrefapp/exchange-ndr-handler:VERSION for a stable version
 
 The following environment variables must be set for the script to run properly:
 
@@ -80,7 +80,7 @@ Download from docker hub:
 
 twrefapp/inbox-notifier:latest
 OR
-twrefapp/inbox-notifier:<version> for a stable version
+twrefapp/inbox-notifier:VERSION for a stable version
 
 The following environment variables must be set for the script to run properly:
 
