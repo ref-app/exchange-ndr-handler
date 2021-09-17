@@ -33,6 +33,7 @@ async function purgeItems(
       for (const item of found.Items) {
         numDeleted++;
         process.stderr.write(".");
+        // Or use MoveItems instead to move many items at once
         await item.Move(ews.WellKnownFolderName.DeletedItems);
       }
     }
