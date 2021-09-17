@@ -22,14 +22,16 @@ async function purgeItems(
   filter: ews.SearchFilter
 ) {
   let offset = 0;
-  let numFound = 0;
+  let numDeleted = 0;
   do {
     const view = new ews.ItemView(1000, offset);
     const found = await findItemsByFilter(service, folderName, filter, view);
     if (found.Items.length > 0) {
-      console.info(`Found ${found.Items.length} items in ${folderName}, moving to Deleted Items`);
+      console.info(
+        `Found ${found.Items.length} items in ${folderName}, moving to Deleted Items`
+      );
       for (const item of found.Items) {
-        numFound++;
+        numDeleted++;
         process.stderr.write(".");
         await item.Move(ews.WellKnownFolderName.DeletedItems);
       }
@@ -40,6 +42,7 @@ async function purgeItems(
     }
     offset = found.NextPageOffset;
   } while (true);
+  console.info(`Deleted ${numDeleted} items total from ${folderName}`);
 }
 
 async function processItems(service: ews.ExchangeService) {
