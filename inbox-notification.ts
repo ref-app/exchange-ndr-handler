@@ -8,19 +8,42 @@ import {
   writeError,
 } from "./ews-connect";
 
-async function invokeWebhook(
-  numNewMessages: number,
-  webhookUrl: string,
-  mailboxName: string,
-  mailboxLink: string
-): Promise<"success" | "failure"> {
+interface InboxNotificationConfig {
+  processedTag: string;
+  /**
+   * Webhook to invoke, e.g. for a Slack channel
+   */
+  webhookUrl: string;
+  /**
+   * Display name for the notification
+   */
+  mailboxName: string;
+  /**
+   * Folder to search in or default to Inbox
+   */
+  folderName?: string;
+  customMessage?: string;
+  customText?: string;
+}
+
+async function invokeWebhook({
+  numNewMessages,
+  mailboxLink,
+  config: { mailboxName, webhookUrl, customMessage, customText },
+}: {
+  numNewMessages: number;
+  mailboxLink: string;
+  config: InboxNotificationConfig;
+}): Promise<"success" | "failure"> {
   // This is where we could create different kinds of payloads
   const content = {
-    message: "You have new support mail",
+    message: customMessage || "You have new support mail",
     numNewMessages,
-    text: `You have ${numNewMessages} new message${
-      numNewMessages > 1 ? "s" : ""
-    } in the ${mailboxName} mailbox - click here to access: ${mailboxLink}`,
+    text:
+      customText ||
+      `You have ${numNewMessages} new message${
+        numNewMessages > 1 ? "s" : ""
+      } in the ${mailboxName} mailbox - click here to access: ${mailboxLink}`,
   };
   console.info(content);
   try {
@@ -31,35 +54,59 @@ async function invokeWebhook(
   }
 }
 
-interface InboxNotificationConfig {
-  processedTag: string;
-  webhookUrl: string;
-  mailboxName: string;
-}
 /**
  * Searching by query may be faster but there seems to be a huge delay (more than 10 minutes, then I gave up) between e.g. moving items between folders in Outlook Web Access
  * and when the items actually show up in a search so we use a filter because it seems reliable
  */
 async function findItemsByFilter(
   service: ews.ExchangeService,
+  folderId: ews.FolderId,
   filter: ews.SearchFilter,
   view: ews.ItemView
 ) {
-  //const result = service.FindItems(ews.WellKnownFolderName.Inbox, query, view);
-  const result = await service.FindItems(
-    ews.WellKnownFolderName.Inbox,
-    filter,
-    view
-  );
+  const result = await service.FindItems(folderId, filter, view);
   return result;
+}
+
+/**
+ * Falls back to inbox if no name given
+ */
+async function getFolderIdFromName(
+  service: ews.ExchangeService,
+  folderName: string | undefined
+): Promise<ews.FolderId> {
+  if (folderName) {
+    const view = new ews.FolderView(1);
+    view.PropertySet = new ews.PropertySet(
+      ews.BasePropertySet.IdOnly,
+      ews.FolderSchema.DisplayName
+    );
+    view.Traversal = ews.FolderTraversal.Deep;
+
+    const filter = new ews.SearchFilter.IsEqualTo(
+      ews.FolderSchema.DisplayName,
+      folderName
+    );
+
+    const found = await service.FindFolders(
+      ews.WellKnownFolderName.Root,
+      filter,
+      view
+    );
+    if (found.TotalCount > 0) {
+      return found.Folders[0].Id;
+    }
+    // Throw?
+  }
+  return new ews.FolderId(ews.WellKnownFolderName.Inbox);
 }
 
 async function processInbox(service: ews.ExchangeService) {
   let offset = 0;
 
-  const processorConfig = getConfigFromEnvironmentVariable<InboxNotificationConfig>(
-    "INBOX_NOTIFICATION_CONFIG"
-  );
+  const processorConfig = getConfigFromEnvironmentVariable<
+    InboxNotificationConfig
+  >("INBOX_NOTIFICATION_CONFIG");
   if (!processorConfig) {
     writeError(
       "Error: INBOX_NOTIFICATION_CONFIG environment variable must be set"
@@ -73,10 +120,20 @@ async function processInbox(service: ews.ExchangeService) {
     )
   );
 
+  const parentFolderId = await getFolderIdFromName(
+    service,
+    processorConfig.folderName
+  );
+
   let numNew = 0;
   do {
     const view = new ews.ItemView(100, offset);
-    const found = await findItemsByFilter(service, filter, view);
+    const found = await findItemsByFilter(
+      service,
+      parentFolderId,
+      filter,
+      view
+    );
     if (found.Items.length > 0) {
       for (const item of found.Items) {
         item.Categories.Add(processorConfig.processedTag);
@@ -93,12 +150,11 @@ async function processInbox(service: ews.ExchangeService) {
   if (numNew > 0) {
     const mailboxLink = new URL(service.Url.AbsoluteUri);
     mailboxLink.pathname = "/owa";
-    await invokeWebhook(
-      numNew,
-      processorConfig.webhookUrl,
-      processorConfig.mailboxName,
-      mailboxLink.toString()
-    );
+    await invokeWebhook({
+      config: processorConfig,
+      numNewMessages: numNew,
+      mailboxLink: mailboxLink.toString(),
+    });
   }
 }
 
