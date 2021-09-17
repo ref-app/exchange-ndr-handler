@@ -23,7 +23,7 @@ export function getConfigFromEnvironmentVariable<T>(
 }
 
 export function withEwsConnection(
-  worker: (service: ews.ExchangeService) => Promise<void>
+  worker: (service: ews.ExchangeService) => Promise<void|number>
 ) {
   interface ExchangeConfig {
     username: string;
@@ -50,7 +50,10 @@ export function withEwsConnection(
   service.Url = new ews.Uri(config.serviceUrl);
 
   worker(service).then(
-    () => writeProgress("Success!"),
+    (result) => {
+      writeProgress("Success!");
+      return result;
+    },
     (e) => {
       writeError(`Error: ${e.message}`);
       if (e.faultString) {
