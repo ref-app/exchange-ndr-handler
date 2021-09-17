@@ -18,6 +18,7 @@ async function countSentMail(service: ews.ExchangeService) {
   const dates: string[] = [];
   do {
     const view = new ews.ItemView(1000, offset);
+    view.PropertySet = new ews.PropertySet(ews.ItemSchema.DateTimeSent);
     const found = await service.FindItems(
       ews.WellKnownFolderName.SentItems,
       filter,
@@ -36,9 +37,11 @@ async function countSentMail(service: ews.ExchangeService) {
     offset = found.NextPageOffset;
   } while (true);
   const perDay = _.countBy(dates);
-  const sortedPairs = _.toPairs(perDay).sort(([k1], [k2]) => k1.localeCompare(k2));
-  for (const [k,v] of sortedPairs) {
-    console.info(`${k}\t${v}`)
+  const sortedPairs = _.toPairs(perDay).sort(([k1], [k2]) =>
+    k1.localeCompare(k2)
+  );
+  for (const [k, v] of sortedPairs) {
+    console.info(`${k}\t${v}`);
   }
 }
 
