@@ -16,6 +16,12 @@ async function findItemsByFilter(
   return result;
 }
 
+const resultsMap: Record<ews.ServiceResult, string> = {
+  0: ".",
+  1: "W",
+  2: "E",
+}
+
 async function purgeItems(
   service: ews.ExchangeService,
   folderName: ews.WellKnownFolderName,
@@ -30,12 +36,12 @@ async function purgeItems(
       console.info(
         `Found ${found.Items.length} items in ${folderName}, moving to Deleted Items`
       );
-      for (const item of found.Items) {
-        numDeleted++;
-        process.stderr.write(".");
-        // Or use MoveItems instead to move many items at once
-        await item.Move(ews.WellKnownFolderName.DeletedItems);
-      }
+      const results = await service.MoveItems(
+        found.Items.map(item => item.Id),
+        new ews.FolderId(ews.WellKnownFolderName.DeletedItems)
+      );
+      numDeleted += results.Count;
+      process.stderr.write(results.Responses.map(result => resultsMap[result.Result]).join("") + "\n");
     }
 
     if (!found.MoreAvailable) {
