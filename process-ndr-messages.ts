@@ -170,9 +170,6 @@ async function blockRecipients(
     const foundEmailAddresses: ReadonlyArray<string> = blockedSenders.map(
       (member) => member.AddressInformation.Address
     );
-    writeProgress(
-      "foundEmailAddresses: " + JSON.stringify(foundEmailAddresses)
-    );
     let changed = false;
     for (const recipient of recipients) {
       if (!foundEmailAddresses.includes(recipient.Address)) {
