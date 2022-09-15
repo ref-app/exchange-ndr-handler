@@ -2,5 +2,5 @@
 DIRECTORY=$(cd `dirname $0` && pwd)
 VERSION=$(cat "${DIRECTORY}/../VERSION")
 
-docker build -t exchange-ndr-handler:latest -t exchange-ndr-handler:${VERSION} . 
-docker build -t inbox-notifier:latest -t inbox-notifier:${VERSION} --build-arg SCRIPT="inbox-notification.ts" . 
+docker buildx build --platform linux/amd64 -t exchange-ndr-handler:latest -t exchange-ndr-handler:${VERSION} .
+docker buildx build --platform linux/amd64 -t inbox-notifier:latest -t inbox-notifier:${VERSION} --build-arg SCRIPT="inbox-notification.ts" .
