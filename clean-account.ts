@@ -61,25 +61,31 @@ const purgeItems = async ({
     const displayName = isNumber(folderIdentifier) ? ews.WellKnownFolderName[folderIdentifier] : folderIdentifier.displayName;
     const folder = isNumber(folderIdentifier) ? folderIdentifier : folderIdentifier.id;
     stdout.write(`${deleteMode === ews.DeleteMode.HardDelete ? "Deleting items" : "Moving items to DeletedItems"} from ${displayName} where the creation date is before ${before.ToString()}.\n`);
-    let itemIdsForPurge: ews.ItemId[] = [];
     let purgedItems = 0;
-    for await (const item of itemsInFolder({ service, folder, before })) {
-        itemIdsForPurge.push(item.Id);
-        if (itemIdsForPurge.length === 100) {
-            const results = await service.DeleteItems(itemIdsForPurge, deleteMode, ews.SendCancellationsMode.SendToNone, ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly);
-            itemIdsForPurge = [];
-            purgedItems += results.Responses.length;
-            stderr.write(results.Responses.map(response => resultsMap[response.Result]).join(""));
+    try {
+        let itemIdsForPurge: ews.ItemId[] = [];
+        for await (const item of itemsInFolder({ service, folder, before })) {
+            itemIdsForPurge.push(item.Id);
+            if (itemIdsForPurge.length === 100) {
+                const results = await service.DeleteItems(itemIdsForPurge, deleteMode, ews.SendCancellationsMode.SendToNone, ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly);
+                itemIdsForPurge = [];
+                purgedItems += results.Responses.length;
+                stderr.write(results.Responses.map(response => resultsMap[response.Result]).join(""));
+            }
         }
+        if (itemIdsForPurge.length > 0) {
+            const results = await service.DeleteItems(itemIdsForPurge, deleteMode, ews.SendCancellationsMode.SendToNone, ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly);
+            purgedItems += results.Responses.length;
+            stderr.write(results.Responses.map(response => resultsMap[response.Result]).join("") + "\n");
+        } else if (purgedItems > 0) {
+            stderr.write("\n"); // Close out the progress line.
+        }
+    } catch (error) {
+        stderr.write("\n");
+        throw error;
+    } finally {
+        stdout.write(`${deleteMode === ews.DeleteMode.HardDelete ? "Deleted" : "Moved"} ${purgedItems} items.\n`);
     }
-    if (itemIdsForPurge.length > 0) {
-        const results = await service.DeleteItems(itemIdsForPurge, deleteMode, ews.SendCancellationsMode.SendToNone, ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly);
-        purgedItems += results.Responses.length;
-        stderr.write(results.Responses.map(response => resultsMap[response.Result]).join("") + "\n");
-    } else if (purgedItems > 0) {
-        stderr.write("\n"); // Close out the progress line.
-    }
-    stdout.write(`${deleteMode === ews.DeleteMode.HardDelete ? "Deleted" : "Moved"} ${purgedItems} items.\n`);
 }
 
 type Identifier = {
