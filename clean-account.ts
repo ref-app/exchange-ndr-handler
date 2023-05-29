@@ -14,11 +14,15 @@ const resultsMap: Record<ews.ServiceResult, string> = {
   2: "E",
 };
 
+const sleep = ({ ms }: { ms: number } = { ms: 1000 }): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 type LoopItemsOptions = {
   service: ews.ExchangeService;
   folder?: ews.WellKnownFolderName | ews.FolderId;
   before?: ews.DateTime;
   paging?: number;
+  sleepSeconds?: number;
 };
 
 const itemsInFolder = async function* ({
@@ -26,6 +30,7 @@ const itemsInFolder = async function* ({
   folder = ews.WellKnownFolderName.Inbox,
   before = ews.DateTime.UtcNow,
   paging = 500,
+  sleepSeconds = 1,
 }: LoopItemsOptions) {
   const filter = new ews.SearchFilter.IsLessThan(
     ews.ItemSchema.DateTimeCreated,
@@ -47,6 +52,8 @@ const itemsInFolder = async function* ({
     }
     offset += search.Items.length;
     more = search.MoreAvailable;
+    // Before we request another page of items, give it a sleep.
+    await sleep({ ms: sleepSeconds * 1000 });
   } while (more);
 };
 
@@ -55,6 +62,7 @@ type PurgeItemsOptions = {
   folderIdentifier: ews.WellKnownFolderName | Identifier;
   before: ews.DateTime;
   deleteMode: ews.DeleteMode.HardDelete | ews.DeleteMode.MoveToDeletedItems;
+  sleepSeconds?: number;
 };
 
 const purgeItems = async ({
@@ -62,6 +70,7 @@ const purgeItems = async ({
   folderIdentifier,
   before,
   deleteMode,
+  sleepSeconds = 1,
 }: PurgeItemsOptions) => {
   const displayName = isNumber(folderIdentifier)
     ? ews.WellKnownFolderName[folderIdentifier]
@@ -79,7 +88,12 @@ const purgeItems = async ({
   let purgedItems = 0;
   try {
     let itemIdsForPurge: ews.ItemId[] = [];
-    for await (const item of itemsInFolder({ service, folder, before })) {
+    for await (const item of itemsInFolder({
+      service,
+      folder,
+      before,
+      sleepSeconds,
+    })) {
       itemIdsForPurge.push(item.Id);
       if (itemIdsForPurge.length === 100) {
         const results = await service.DeleteItems(
@@ -88,6 +102,8 @@ const purgeItems = async ({
           ews.SendCancellationsMode.SendToNone,
           ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly
         );
+        // After deleting a bunch, give it a sleep.
+        await sleep({ ms: sleepSeconds * 1000});
         itemIdsForPurge = [];
         purgedItems += results.Responses.length;
         stderr.write(
@@ -104,6 +120,8 @@ const purgeItems = async ({
         ews.SendCancellationsMode.SendToNone,
         ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly
       );
+      // After deleting a bunch, give it a sleep.
+      await sleep({ ms: sleepSeconds * 1000});
       purgedItems += results.Responses.length;
       stderr.write(
         results.Responses.map((response) => resultsMap[response.Result]).join(
@@ -174,6 +192,7 @@ withEwsConnection(async (service) => {
       folderIdentifier,
       before,
       deleteMode: ews.DeleteMode.MoveToDeletedItems,
+      sleepSeconds: 2,
     });
   }
   // Then remove everything from the trash older than 3 months before the provided purgeBefore date.
@@ -182,5 +201,6 @@ withEwsConnection(async (service) => {
     folderIdentifier: ews.WellKnownFolderName.DeletedItems,
     before: before.AddMonths(-3),
     deleteMode: ews.DeleteMode.HardDelete,
+    sleepSeconds: 2,
   });
 });
