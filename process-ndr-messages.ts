@@ -188,7 +188,7 @@ async function blockRecipients(
 
 /**
  * Returns "processed" if the ndr item should be move to the Processed folder
- * because are ready with it
+ * because we are ready with it
  */
 async function processOneNdrItem(
   service: ews.ExchangeService,
