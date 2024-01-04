@@ -1,5 +1,4 @@
 #!/usr/bin/env -S yarn exec ts-node
-import { SIGUSR1 } from "constants";
 import * as ews from "ews-javascript-api";
 import _ = require("lodash");
 import { withEwsConnection, writeProgress } from "./ews-connect";
