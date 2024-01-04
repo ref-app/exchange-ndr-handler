@@ -127,7 +127,8 @@ function extractNdrErrorCode(body: string): string | undefined {
   const matches = /Remote Server returned '([^']+)'/i.exec(body);
   if (matches) {
     const remoteResponse = matches[1];
-    const codeMatches = /#([45]\.\d\.\d{1,3})/.exec(remoteResponse);
+    // Sometimes the hash is missing, e.g. 550 5.1.17 SMTPSEND.Utf8RecipientAddress; UTF-8 recipient address not supported.
+    const codeMatches = /[#\s]([45]\.\d\.\d{1,3})\s/.exec(remoteResponse);
     if (codeMatches) {
       return codeMatches[1];
     }
@@ -151,7 +152,7 @@ async function invokeWebhook(
   );
   try {
     if (dryRun) {
-      writeProgress(`Would have invoked webhook for ${ndrItem.Id.UniqueId}`);
+      writeProgress(`Would have invoked webhook for ${originalInternetMessageId}`);
     }
     else {
       const _result = await axios.post(webhookUrl, content);
@@ -178,7 +179,7 @@ async function blockRecipients(
     );
     let changed = false;
     for (const recipient of recipients) {
-      if (!foundEmailAddresses.includes(recipient.Address)) {
+      if (recipient.Address && !foundEmailAddresses.includes(recipient.Address)) {
         if (config.dryRun) {
           writeProgress(
             `Would have added blocked contact ${recipient.Address} to contact group`
@@ -222,7 +223,10 @@ async function processOneNdrItem(
      * NDR RFC 3463 code
      */
     const errorCode = extractNdrErrorCode(item.TextBody.Text);
-    if (errorCode) {
+    if (!errorCode) {
+      writeError("Could not extract error code");
+    }
+    else {
       const messageId = values.find(
         ({ name }) => name === "PidTagOriginalMessageId"
         )?.value.outValue;
@@ -250,7 +254,7 @@ async function processOneNdrItem(
         }
       }
       else {
-        writeError("Could not find PidTagOriginalMessageId for message - will move it anyway")
+        writeError("Could not find PidTagOriginalMessageId for message - will move it anyway");
         return "processed";
       }
     }
