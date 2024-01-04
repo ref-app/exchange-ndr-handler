@@ -12,6 +12,7 @@ import {
   writeProgress,
 } from "./ews-connect";
 import { createMailjetEvent } from "./mailjet-event";
+import { z } from "zod";
 
 type FieldType = "string" | "number" | "date";
 
@@ -266,11 +267,14 @@ async function findOrCreateFolder(service: ews.ExchangeService, name: string) {
   return createdFolder;
 }
 
-interface NdrProcessorConfig {
-  processedFolderName?: string;
-  blockedRecipientsListName?: string;
-  webhookUrl: string;
-}
+const ndrProcessorConfigSchema = z.object({
+  processedFolderName: z.string().optional(),
+  blockedRecipientsListName: z.string().optional(),
+  webhookUrl: z.string()
+  
+})
+
+type NdrProcessorConfig = z.infer<typeof ndrProcessorConfigSchema>
 
 /**
  * Searching by query may be faster but there seems to be a huge delay (more than 10 minutes, then I gave up) between e.g. moving items between folders in Outlook Web Access
@@ -304,13 +308,23 @@ async function processNdrMessages(service: ews.ExchangeService) {
 
   let offset = 0;
 
-  const processorConfig = getConfigFromEnvironmentVariable<NdrProcessorConfig>(
+  const configRaw = getConfigFromEnvironmentVariable<unknown>(
     "NDR_PROCESSOR_CONFIG"
   );
-  if (!processorConfig) {
+  if (!configRaw) {
     writeError("Error: NDR_PROCESSOR_CONFIG environment variable must be set");
     process.exit(4);
   }
+  const parsed = ndrProcessorConfigSchema.safeParse (configRaw);
+  if (!parsed.success)  {
+    writeError("Error: configuration did not validate");
+    for (const error of parsed.error.issues) {
+      writeError(error.message);
+    }
+    process.exit(4);
+  }
+  
+  const processorConfig = parsed.data;
   const processedFolder = await findOrCreateFolder(
     service,
     processorConfig.processedFolderName ?? "NDR Processed"
