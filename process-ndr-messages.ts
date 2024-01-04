@@ -50,7 +50,7 @@ const mapiPropTypes: { [k in FieldType]: ews.MapiPropertyType } = {
   string: ews.MapiPropertyType.String,
 };
 
-interface mapiTypes {
+interface MapiTypes {
   date: number;
   number: number;
   string: string;
@@ -76,7 +76,7 @@ const props = new ews.PropertySet(
   extraProps
 );
 
-type OutValue<T extends FieldType> = ews.IOutParam<mapiTypes[T]>;
+type OutValue<T extends FieldType> = ews.IOutParam<MapiTypes[T]>;
 
 const initOutValue = <T extends FieldType>(t: T): OutValue<T> => {
   return { outValue: null } as any; // Typings are a bit weird here but null seems to be expected
@@ -127,7 +127,7 @@ function extractNdrErrorCode(body: string): string | undefined {
   const matches = /Remote Server returned '([^']+)'/i.exec(body);
   if (matches) {
     const remoteResponse = matches[1];
-    const codeMatches = /#([45]\.[0-9]\.[0-9]{1,3})/.exec(remoteResponse);
+    const codeMatches = /#([45]\.\d\.\d{1,3})/.exec(remoteResponse);
     if (codeMatches) {
       return codeMatches[1];
     }
@@ -140,7 +140,7 @@ async function invokeWebhook(
   originalMessage: ews.Item,
   originalInternetMessageId: string,
   errorCode: string,
-  webhookUrl: string
+  { webhookUrl, dryRun = false }: Readonly<NdrProcessorConfig>
 ): Promise<"success" | "failure"> {
   // This is where we could create different kinds of payloads
   const content = createMailjetEvent(
@@ -150,7 +150,12 @@ async function invokeWebhook(
     errorCode
   );
   try {
-    const result = await axios.post(webhookUrl, content);
+    if (dryRun) {
+      writeProgress(`Would have invoked webhook for ${ndrItem.Id.UniqueId}`);
+    }
+    else {
+      const _result = await axios.post(webhookUrl, content);
+    }
     return "success";
   } catch (e) {
     return "failure";
@@ -174,11 +179,18 @@ async function blockRecipients(
     let changed = false;
     for (const recipient of recipients) {
       if (!foundEmailAddresses.includes(recipient.Address)) {
-        writeProgress(
-          `Saving new blocked contact ${recipient} to contact group`
-        );
-        blockedSendersList.Members.AddOneOff(recipient.Name, recipient.Address);
-        changed = true;
+        if (config.dryRun) {
+          writeProgress(
+            `Would have added blocked contact ${recipient.Address} to contact group`
+          );      
+        }
+        else {
+          writeProgress(
+            `Saving new blocked contact ${recipient.Address} to contact group`
+          );
+          blockedSendersList.Members.AddOneOff(recipient.Name, recipient.Address);
+          changed = true;
+        }
       }
     }
     if (changed) {
@@ -213,7 +225,7 @@ async function processOneNdrItem(
     if (errorCode) {
       const messageId = values.find(
         ({ name }) => name === "PidTagOriginalMessageId"
-      )?.value.outValue;
+        )?.value.outValue;
       if (messageId && typeof messageId === "string") {
         const originalMessage = await fetchItemByMessageId(service, messageId);
         if (originalMessage) {
@@ -222,7 +234,7 @@ async function processOneNdrItem(
             originalMessage,
             messageId,
             errorCode,
-            config.webhookUrl
+            config
           );
           if (isHardBounce(errorCode)) {
             await blockRecipients(
@@ -236,6 +248,10 @@ async function processOneNdrItem(
             return "processed";
           }
         }
+      }
+      else {
+        writeError("Could not find PidTagOriginalMessageId for message - will move it anyway")
+        return "processed";
       }
     }
   }
@@ -270,9 +286,11 @@ async function findOrCreateFolder(service: ews.ExchangeService, name: string) {
 const ndrProcessorConfigSchema = z.object({
   processedFolderName: z.string().optional(),
   blockedRecipientsListName: z.string().optional(),
-  webhookUrl: z.string()
-  
+  webhookUrl: z.string(),
+  dryRun: z.boolean().optional(),
 })
+.strict()
+.readonly();
 
 type NdrProcessorConfig = z.infer<typeof ndrProcessorConfigSchema>
 
@@ -286,7 +304,7 @@ async function findItemsByQueryOrFilter(
   filter: ews.SearchFilter,
   view: ews.ItemView
 ) {
-  //const result = service.FindItems(ews.WellKnownFolderName.Inbox, query, view);
+  // Not: const result = service.FindItems(ews.WellKnownFolderName.Inbox, query, view);
   const result = await service.FindItems(
     ews.WellKnownFolderName.Inbox,
     filter,
@@ -301,10 +319,12 @@ async function processNdrMessages(service: ews.ExchangeService) {
   // https://docs.microsoft.com/en-us/previous-versions/office/developer/exchange-server-2010/ee693615%28v%3dexchg.140%29
   // kind:Report is not documented - found through trial and error
   const query = `kind:report`;
-  const filter = new ews.SearchFilter.IsEqualTo(
-    ews.ItemSchema.ItemClass,
-    "REPORT.IPM.Note.NDR"
-  );
+  const filter = new ews.SearchFilter.SearchFilterCollection(ews.LogicalOperator.And,
+    [
+      new ews.SearchFilter.IsEqualTo(
+        ews.ItemSchema.ItemClass,
+        "REPORT.IPM.Note.NDR"),
+    ]);
 
   let offset = 0;
 
@@ -315,15 +335,15 @@ async function processNdrMessages(service: ews.ExchangeService) {
     writeError("Error: NDR_PROCESSOR_CONFIG environment variable must be set");
     process.exit(4);
   }
-  const parsed = ndrProcessorConfigSchema.safeParse (configRaw);
+  const parsed = ndrProcessorConfigSchema.safeParse(configRaw);
   if (!parsed.success)  {
     writeError("Error: configuration did not validate");
     for (const error of parsed.error.issues) {
-      writeError(error.message);
+      writeError(`${error.message} ${error.path}`);
     }
     process.exit(4);
   }
-  
+
   const processorConfig = parsed.data;
   const processedFolder = await findOrCreateFolder(
     service,
@@ -348,7 +368,12 @@ async function processNdrMessages(service: ews.ExchangeService) {
           processorConfig
         );
         if (processResult === "processed") {
-          await item.Move(processedFolder.Id);
+          if (processorConfig.dryRun) {
+            writeProgress("Would have moved item to processed documents")
+          }
+          else {
+            await item.Move(processedFolder.Id);
+          }
         }
       }
     }
