@@ -1,4 +1,4 @@
-#!/usr/bin/env ts-node-script
+#!/usr/bin/env -S yarn exec ts-node
 import * as ews from "ews-javascript-api";
 import * as _ from "lodash";
 import axios from "axios";

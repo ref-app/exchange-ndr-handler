@@ -1,4 +1,4 @@
-#!/usr/bin/env -S yarn exec -s ts-node
+#!/usr/bin/env -S yarn exec ts-node
 import * as ews from "ews-javascript-api";
 import { isNumber } from "lodash";
 import { argv, exit, stderr, stdout } from "process";

@@ -1,4 +1,4 @@
-#!/usr/bin/env ts-node-script
+#!/usr/bin/env -S yarn exec ts-node
 import { SIGUSR1 } from "constants";
 import * as ews from "ews-javascript-api";
 import _ = require("lodash");
