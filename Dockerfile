@@ -2,11 +2,10 @@ FROM node:20-alpine3.18
 
 LABEL Maintainer "Refapp - https://github.com/ref-app"
 
-RUN yarn global add ts-node typescript
-
 WORKDIR /usr/src
 
-COPY package.json yarn.lock README.md ./
+COPY .yarn/ ./.yarn/
+COPY .yarnrc.yml package.json yarn.lock README.md ./
 
 RUN yarn
 
