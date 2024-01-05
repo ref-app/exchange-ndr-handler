@@ -136,13 +136,21 @@ function extractNdrErrorCode(body: string): string | undefined {
   return undefined;
 }
 
-async function invokeWebhook(
-  ndrItem: ews.Item,
-  originalMessage: ews.Item,
-  originalInternetMessageId: string,
-  errorCode: string,
-  { webhookUrl, dryRun = false }: Readonly<NdrProcessorConfig>
-): Promise<"success" | "failure"> {
+async function invokeWebhook({
+  ndrItem,
+  originalMessage,
+  originalInternetMessageId,
+  errorCode,
+  config: { webhookUrl, dryRun = false },
+  webhookNotBefore,
+}: {
+  ndrItem: ews.Item;
+  originalMessage: ews.Item;
+  originalInternetMessageId: string;
+  errorCode: string;
+  config: Readonly<NdrProcessorConfig>;
+  webhookNotBefore: Date;
+}): Promise<"success" | "failure"> {
   // This is where we could create different kinds of payloads
   const content = createMailjetEvent(
     ndrItem,
@@ -153,16 +161,18 @@ async function invokeWebhook(
   try {
     const originalMessageDate =
       originalMessage.DateTimeSent.MomentDate.toDate();
-    writeProgress(originalMessageDate.toISOString());
+    const tooOld = webhookNotBefore > originalMessageDate;
     if (dryRun) {
       writeProgress(
-        `Would have invoked webhook for ${originalInternetMessageId}`
+        `Would ${
+          tooOld ? "not " : ""
+        }have invoked webhook for ${originalInternetMessageId}`
       );
     } else {
-      if (webhookUrl) {
-        const _result = await axios.post(webhookUrl, content);
+      if (tooOld) {
+        writeProgress("No webhook call, message too old");
       } else {
-        writeError("Webhook is empty - skipping call");
+        const _result = await axios.post(webhookUrl, content);
       }
     }
     return "success";
@@ -222,11 +232,13 @@ async function processOneNdrItem({
   item,
   values,
   config,
+  webhookNotBefore,
 }: {
   service: ews.ExchangeService;
   item: ews.Item;
   values: ReadonlyArray<FieldValue>;
   config: Readonly<NdrProcessorConfig>;
+  webhookNotBefore: Date;
 }): Promise<"processed" | "unprocessed"> {
   if (
     !item.ItemClass.localeCompare("Report.IPM.Note.NDR", undefined, {
@@ -250,13 +262,19 @@ async function processOneNdrItem({
       if (messageId && typeof messageId === "string") {
         const originalMessage = await fetchItemByMessageId(service, messageId);
         if (originalMessage) {
-          const webhookResult = await invokeWebhook(
-            item,
-            originalMessage,
-            messageId,
-            errorCode,
-            config
+          writeProgress(
+            `Sent on ${originalMessage.DateTimeSent.MomentDate.format(
+              "YYYY-MM-DD"
+            )}`
           );
+          const webhookResult = await invokeWebhook({
+            ndrItem: item,
+            originalMessage,
+            originalInternetMessageId: messageId,
+            errorCode,
+            config,
+            webhookNotBefore,
+          });
           if (isHardBounce(errorCode)) {
             await blockRecipients(
               service,
@@ -382,6 +400,9 @@ async function processNdrMessages(service: ews.ExchangeService) {
     process.exit(2);
   }
   do {
+    const webhookNotBefore = new Date();
+    webhookNotBefore.setMonth(webhookNotBefore.getMonth() - 1);
+
     const view = new ews.ItemView(10, offset);
     const found = await findItemsByQueryOrFilter(service, query, filter, view);
     if (found.Items.length > 0) {
@@ -392,6 +413,7 @@ async function processNdrMessages(service: ews.ExchangeService) {
           item,
           values: getItemExtendedProperties(item),
           config: processorConfig,
+          webhookNotBefore,
         });
         if (processResult === "processed") {
           if (processorConfig.dryRun) {
