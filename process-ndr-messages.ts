@@ -151,11 +151,19 @@ async function invokeWebhook(
     errorCode
   );
   try {
+    const originalMessageDate =
+      originalMessage.DateTimeSent.MomentDate.toDate();
+    writeProgress(originalMessageDate.toISOString());
     if (dryRun) {
-      writeProgress(`Would have invoked webhook for ${originalInternetMessageId}`);
-    }
-    else {
-      const _result = await axios.post(webhookUrl, content);
+      writeProgress(
+        `Would have invoked webhook for ${originalInternetMessageId}`
+      );
+    } else {
+      if (webhookUrl) {
+        const _result = await axios.post(webhookUrl, content);
+      } else {
+        writeError("Webhook is empty - skipping call");
+      }
     }
     return "success";
   } catch (e) {
@@ -179,17 +187,22 @@ async function blockRecipients(
     );
     let changed = false;
     for (const recipient of recipients) {
-      if (recipient.Address && !foundEmailAddresses.includes(recipient.Address)) {
+      if (
+        recipient.Address &&
+        !foundEmailAddresses.includes(recipient.Address)
+      ) {
         if (config.dryRun) {
           writeProgress(
             `Would have added blocked contact ${recipient.Address} to contact group`
-          );      
-        }
-        else {
+          );
+        } else {
           writeProgress(
             `Saving new blocked contact ${recipient.Address} to contact group`
           );
-          blockedSendersList.Members.AddOneOff(recipient.Name, recipient.Address);
+          blockedSendersList.Members.AddOneOff(
+            recipient.Name,
+            recipient.Address
+          );
           changed = true;
         }
       }
@@ -204,12 +217,17 @@ async function blockRecipients(
  * Returns "processed" if the ndr item should be move to the Processed folder
  * because we are ready with it
  */
-async function processOneNdrItem(
-  service: ews.ExchangeService,
-  item: ews.Item,
-  values: ReadonlyArray<FieldValue>,
-  config: Readonly<NdrProcessorConfig>
-): Promise<"processed" | "unprocessed"> {
+async function processOneNdrItem({
+  service,
+  item,
+  values,
+  config,
+}: {
+  service: ews.ExchangeService;
+  item: ews.Item;
+  values: ReadonlyArray<FieldValue>;
+  config: Readonly<NdrProcessorConfig>;
+}): Promise<"processed" | "unprocessed"> {
   if (
     !item.ItemClass.localeCompare("Report.IPM.Note.NDR", undefined, {
       sensitivity: "base",
@@ -225,11 +243,10 @@ async function processOneNdrItem(
     const errorCode = extractNdrErrorCode(item.TextBody.Text);
     if (!errorCode) {
       writeError("Could not extract error code");
-    }
-    else {
+    } else {
       const messageId = values.find(
         ({ name }) => name === "PidTagOriginalMessageId"
-        )?.value.outValue;
+      )?.value.outValue;
       if (messageId && typeof messageId === "string") {
         const originalMessage = await fetchItemByMessageId(service, messageId);
         if (originalMessage) {
@@ -252,9 +269,10 @@ async function processOneNdrItem(
             return "processed";
           }
         }
-      }
-      else {
-        writeError("Could not find PidTagOriginalMessageId for message - will move it anyway");
+      } else {
+        writeError(
+          "Could not find PidTagOriginalMessageId for message - will move it anyway"
+        );
         return "processed";
       }
     }
@@ -287,16 +305,17 @@ async function findOrCreateFolder(service: ews.ExchangeService, name: string) {
   return createdFolder;
 }
 
-const ndrProcessorConfigSchema = z.object({
-  processedFolderName: z.string().optional(),
-  blockedRecipientsListName: z.string().optional(),
-  webhookUrl: z.string(),
-  dryRun: z.boolean().optional(),
-})
-.strict()
-.readonly();
+const ndrProcessorConfigSchema = z
+  .object({
+    processedFolderName: z.string().optional(),
+    blockedRecipientsListName: z.string().optional(),
+    webhookUrl: z.string(),
+    dryRun: z.boolean().optional(),
+  })
+  .strict()
+  .readonly();
 
-type NdrProcessorConfig = z.infer<typeof ndrProcessorConfigSchema>
+type NdrProcessorConfig = z.infer<typeof ndrProcessorConfigSchema>;
 
 /**
  * Searching by query may be faster but there seems to be a huge delay (more than 10 minutes, then I gave up) between e.g. moving items between folders in Outlook Web Access
@@ -323,12 +342,15 @@ async function processNdrMessages(service: ews.ExchangeService) {
   // https://docs.microsoft.com/en-us/previous-versions/office/developer/exchange-server-2010/ee693615%28v%3dexchg.140%29
   // kind:Report is not documented - found through trial and error
   const query = `kind:report`;
-  const filter = new ews.SearchFilter.SearchFilterCollection(ews.LogicalOperator.And,
+  const filter = new ews.SearchFilter.SearchFilterCollection(
+    ews.LogicalOperator.And,
     [
       new ews.SearchFilter.IsEqualTo(
         ews.ItemSchema.ItemClass,
-        "REPORT.IPM.Note.NDR"),
-    ]);
+        "REPORT.IPM.Note.NDR"
+      ),
+    ]
+  );
 
   let offset = 0;
 
@@ -340,7 +362,7 @@ async function processNdrMessages(service: ews.ExchangeService) {
     process.exit(4);
   }
   const parsed = ndrProcessorConfigSchema.safeParse(configRaw);
-  if (!parsed.success)  {
+  if (!parsed.success) {
     writeError("Error: configuration did not validate");
     for (const error of parsed.error.issues) {
       writeError(`${error.message} ${error.path}`);
@@ -365,17 +387,16 @@ async function processNdrMessages(service: ews.ExchangeService) {
     if (found.Items.length > 0) {
       await service.LoadPropertiesForItems(found.Items, props);
       for (const item of found.Items) {
-        const processResult = await processOneNdrItem(
+        const processResult = await processOneNdrItem({
           service,
           item,
-          getItemExtendedProperties(item),
-          processorConfig
-        );
+          values: getItemExtendedProperties(item),
+          config: processorConfig,
+        });
         if (processResult === "processed") {
           if (processorConfig.dryRun) {
-            writeProgress("Would have moved item to processed documents")
-          }
-          else {
+            writeProgress("Would have moved item to processed documents");
+          } else {
             await item.Move(processedFolder.Id);
           }
         }

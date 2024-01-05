@@ -83,7 +83,7 @@ withEwsConnection(async (service) => {
     60 /
     60 /
     1000;
-    // console.error(`Today: ${currentDay}`);
+  // console.error(`Today: ${currentDay}`);
   let day = 100;
   do {
     const start = Date.UTC(2022, 0, day, 0, 0, 0);
@@ -126,7 +126,7 @@ withEwsConnection(async (service) => {
     const unfilteredLength = size(collection);
     console.log(
       [
-        (new Date(start)).toLocaleDateString("sv-SE"),
+        new Date(start).toLocaleDateString("sv-SE"),
         filteredLength,
         unfilteredLength,
         filteredLength / unfilteredLength,

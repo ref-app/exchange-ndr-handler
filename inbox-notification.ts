@@ -104,9 +104,10 @@ async function getFolderIdFromName(
 async function processInbox(service: ews.ExchangeService) {
   let offset = 0;
 
-  const processorConfig = getConfigFromEnvironmentVariable<
-    InboxNotificationConfig
-  >("INBOX_NOTIFICATION_CONFIG");
+  const processorConfig =
+    getConfigFromEnvironmentVariable<InboxNotificationConfig>(
+      "INBOX_NOTIFICATION_CONFIG"
+    );
   if (!processorConfig) {
     writeError(
       "Error: INBOX_NOTIFICATION_CONFIG environment variable must be set"

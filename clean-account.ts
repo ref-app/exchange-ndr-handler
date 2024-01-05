@@ -103,7 +103,7 @@ const purgeItems = async ({
           ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly
         );
         // After deleting a bunch, give it a sleep.
-        await sleep({ ms: sleepSeconds * 1000});
+        await sleep({ ms: sleepSeconds * 1000 });
         itemIdsForPurge = [];
         purgedItems += results.Responses.length;
         stderr.write(
@@ -121,7 +121,7 @@ const purgeItems = async ({
         ews.AffectedTaskOccurrence.SpecifiedOccurrenceOnly
       );
       // After deleting a bunch, give it a sleep.
-      await sleep({ ms: sleepSeconds * 1000});
+      await sleep({ ms: sleepSeconds * 1000 });
       purgedItems += results.Responses.length;
       stderr.write(
         results.Responses.map((response) => resultsMap[response.Result]).join(

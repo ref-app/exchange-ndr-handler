@@ -62,6 +62,5 @@ const getBlockedRecipients = async (
 };
 
 withEwsConnection(async (service) => {
-    console.log(await getBlockedRecipients(service));
-  });
-  
+  console.log(await getBlockedRecipients(service));
+});

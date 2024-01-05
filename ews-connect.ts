@@ -23,7 +23,7 @@ export function getConfigFromEnvironmentVariable<T>(
 }
 
 export function withEwsConnection(
-  worker: (service: ews.ExchangeService) => Promise<void|number>
+  worker: (service: ews.ExchangeService) => Promise<void | number>
 ) {
   interface ExchangeConfig {
     username: string;
@@ -32,9 +32,8 @@ export function withEwsConnection(
   }
   const service = new ews.ExchangeService(ews.ExchangeVersion.Exchange2016);
 
-  const config = getConfigFromEnvironmentVariable<ExchangeConfig>(
-    "EXCHANGE_CONFIG"
-  );
+  const config =
+    getConfigFromEnvironmentVariable<ExchangeConfig>("EXCHANGE_CONFIG");
   if (!config) {
     writeError("Error: EXCHANGE_CONFIG environment variable must be set");
     process.exit(4);
