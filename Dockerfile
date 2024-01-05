@@ -1,5 +1,12 @@
 FROM node:20-alpine3.18
 
+# support for /usr/bin/env -S flag:
+# https://gitlab.alpinelinux.org/alpine/aports/-/issues/13344
+RUN apk add --no-cache coreutils
+
+# clear the inherited entrypoint (node)
+ENTRYPOINT []
+
 LABEL Maintainer "Refapp - https://github.com/ref-app"
 
 WORKDIR /usr/src
