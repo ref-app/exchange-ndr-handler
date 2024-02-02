@@ -1,6 +1,6 @@
 #!/usr/bin/env -S yarn exec ts-node
 
-// Before running, make sure to source the EXCHANGE_CONFIG environtment variable dependency.
+// Before running, make sure to source the EXCHANGE_CONFIG environment variable dependency.
 // E.g. `source ~/.gns/credentials`.
 
 import { createHash, getHashes } from "crypto";
