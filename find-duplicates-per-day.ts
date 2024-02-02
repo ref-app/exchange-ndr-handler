@@ -1,4 +1,4 @@
-#!/usr/bin/env -S yarn exec -s ts-node
+#!/usr/bin/env -S yarn exec ts-node
 
 // Before running, make sure to source the EXCHANGE_CONFIG environtment variable dependency.
 // E.g. `source ~/.gns/credentials`.
