@@ -2,7 +2,7 @@
 import * as ews from "ews-javascript-api";
 import { isNumber } from "lodash";
 import { argv, exit, stderr, stdout } from "process";
-import { withEwsConnection } from "./ews-connect";
+import { type Identifier, identifiersFromNames, withEwsConnection, sleep } from "./ews-connect";
 
 /**
  * Maps different {@link ews.ServiceResult} values to a progress symbol,
@@ -13,9 +13,6 @@ const resultsMap: Record<ews.ServiceResult, string> = {
   1: "W",
   2: "E",
 };
-
-const sleep = ({ ms }: { ms: number } = { ms: 1000 }): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 type LoopItemsOptions = {
   service: ews.ExchangeService;
@@ -143,32 +140,6 @@ const purgeItems = async ({
   }
 };
 
-type Identifier = {
-  id: ews.Folder["Id"];
-  displayName: ews.Folder["DisplayName"];
-};
-
-type IdentifiersFromNamesOptions = {
-  service: ews.ExchangeService;
-  displayNames: string[];
-};
-
-const IdentifiersFromNames = async ({
-  service,
-  displayNames,
-}: IdentifiersFromNamesOptions): Promise<Identifier[]> => {
-  const folderView = new ews.FolderView(1000);
-  folderView.Traversal = ews.FolderTraversal.Deep;
-  const results = await service.FindFolders(
-    ews.WellKnownFolderName.Root,
-    folderView
-  );
-  return results
-    .GetEnumerator()
-    .filter((folder) => displayNames.includes(folder.DisplayName))
-    .map((folder) => ({ id: folder.Id, displayName: folder.DisplayName }));
-};
-
 const purgeBefore = Date.parse(argv[2]);
 if (isNaN(purgeBefore)) {
   stderr.write("Invalid date argument\n");
@@ -182,7 +153,7 @@ withEwsConnection(async (service) => {
     ews.WellKnownFolderName.Inbox,
     ews.WellKnownFolderName.SentItems,
     ews.WellKnownFolderName.Calendar,
-    ...(await IdentifiersFromNames({
+    ...(await identifiersFromNames({
       service,
       displayNames: ["NDR Processed", "Flood warnings"],
     })),
