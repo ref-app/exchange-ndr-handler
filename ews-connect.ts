@@ -8,6 +8,12 @@ export function writeProgress(message: string) {
   writeError(message);
 }
 
+export async function sleep(
+  { ms }: { ms: number } = { ms: 1000 }
+): Promise<void> {
+  new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function getConfigFromEnvironmentVariable<T>(
   name: string
 ): Readonly<T> | undefined {
@@ -107,3 +113,33 @@ export function collectionToArray<T extends ews.ComplexProperty>(
   );
   return result;
 }
+
+export type Identifier = {
+  id: ews.Folder["Id"];
+  displayName: ews.Folder["DisplayName"];
+};
+
+type IdentifiersFromNamesOptions = {
+  service: ews.ExchangeService;
+  displayNames: ReadonlyArray<string>;
+};
+
+/**
+ * Find folders and their ID based on just their display name. Use this to
+ * identify folders that are not part of {@link ews.WellKnownFolderName}.
+ */
+export const identifiersFromNames = async ({
+  service,
+  displayNames,
+}: IdentifiersFromNamesOptions): Promise<Identifier[]> => {
+  const folderView = new ews.FolderView(1000);
+  folderView.Traversal = ews.FolderTraversal.Deep;
+  const results = await service.FindFolders(
+    ews.WellKnownFolderName.Root,
+    folderView
+  );
+  return results
+    .GetEnumerator()
+    .filter((folder) => displayNames.includes(folder.DisplayName))
+    .map((folder) => ({ id: folder.Id, displayName: folder.DisplayName }));
+};
