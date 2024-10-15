@@ -16,6 +16,7 @@ COPY .yarnrc.yml package.json yarn.lock README.md ./
 
 RUN yarn
 
+ENV NODE_ENV production
 # So we can override it when building the image
 ARG SCRIPT=process-ndr-messages.ts
 ENV SCRIPT $SCRIPT
