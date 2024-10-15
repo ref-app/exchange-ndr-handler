@@ -149,7 +149,6 @@ let purgeBefore: number;
 if (process.env.NODE_ENV === "production") {
   const date = new Date();
   date.setMonth(date.getMonth() - 3);
-  console.log(date.toISOString());
   purgeBefore = date.getTime();
 } else {
   purgeBefore = Date.parse(argv[2]);
