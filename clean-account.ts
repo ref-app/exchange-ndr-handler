@@ -2,7 +2,12 @@
 import * as ews from "ews-javascript-api";
 import { isNumber } from "lodash";
 import { argv, exit, stderr, stdout } from "process";
-import { type Identifier, identifiersFromNames, withEwsConnection, sleep } from "./ews-connect";
+import {
+  type Identifier,
+  identifiersFromNames,
+  withEwsConnection,
+  sleep,
+} from "./ews-connect";
 
 /**
  * Maps different {@link ews.ServiceResult} values to a progress symbol,
