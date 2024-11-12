@@ -146,10 +146,18 @@ const purgeItems = async ({
 };
 
 let purgeBefore: number;
+let keepTrashMonths = 3;
+
+/**
+ * When running in production, do not take the date from the CLI. Instead:
+ * 1. Move all data older than 1 month into the trash,
+ * 2. Only keep 2 months of data in the trash.
+ */
 if (process.env.NODE_ENV === "production") {
   const date = new Date();
-  date.setMonth(date.getMonth() - 3);
+  date.setMonth(date.getMonth() - 1);
   purgeBefore = date.getTime();
+  keepTrashMonths = 2;
 } else {
   purgeBefore = Date.parse(argv[2]);
 }
@@ -182,7 +190,7 @@ withEwsConnection(async (service) => {
   await purgeItems({
     service,
     folderIdentifier: ews.WellKnownFolderName.DeletedItems,
-    before: before.AddMonths(-3),
+    before: before.AddMonths(-1 * keepTrashMonths),
     deleteMode: ews.DeleteMode.HardDelete,
     sleepSeconds: 2,
   });
