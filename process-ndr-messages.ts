@@ -232,7 +232,7 @@ async function blockRecipients(
   if (changed) {
     try {
       await blockedSendersList.Update(ews.ConflictResolutionMode.AutoResolve);
-    } catch (err) {
+    } catch (err: unknown) {
       if (
         err instanceof ews.ServiceResponseException &&
         err.Message.includes(", Maximum distribution list entries exceeded.")
@@ -308,10 +308,10 @@ async function processOneNdrItem({
                 config
               );
             }
-          } catch (err) {
+          } catch (err: unknown) {
             writeError(
               `ERROR after sending webhook: ${
-                "message" in err ? err.message : err.toString()
+                _.isObject(err) && "message" in err ? err.message : String(err)
               }`
             );
           }
