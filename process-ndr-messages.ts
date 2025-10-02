@@ -181,44 +181,66 @@ async function invokeWebhook({
   }
 }
 
+/** Emergency boolean to block impossible processing */
+let THE_BLOCK_LIST_IS_FULL = false;
+
 async function blockRecipients(
   service: ews.ExchangeService,
   recipients: ReadonlyArray<ews.EmailAddress>,
   config: Readonly<NdrProcessorConfig>
 ) {
+  if (THE_BLOCK_LIST_IS_FULL) {
+    // We are running after already blocking ourselves once.
+    return;
+  }
   const blockedSendersList = await findOrCreateContactGroup(
     service,
     config.blockedRecipientsListName ?? "Blocked Recipients"
   );
-  if (blockedSendersList) {
-    const blockedSenders = collectionToArray(blockedSendersList.Members);
-    const foundEmailAddresses: ReadonlyArray<string> = blockedSenders.map(
-      (member) => member.AddressInformation.Address
-    );
-    let changed = false;
-    for (const recipient of recipients) {
-      if (
-        recipient.Address &&
-        !foundEmailAddresses.includes(recipient.Address)
-      ) {
-        if (config.dryRun) {
-          writeProgress(
-            `Would have added blocked contact ${recipient.Address} to contact group`
-          );
-        } else {
-          writeProgress(
-            `Saving new blocked contact ${recipient.Address} to contact group`
-          );
-          blockedSendersList.Members.AddOneOff(
-            recipient.Name,
-            recipient.Address
-          );
-          changed = true;
-        }
+  if (blockedSendersList === undefined) {
+    writeError("ERROR: No contact group to add blocked recipients to.");
+    return;
+  }
+  if (blockedSendersList.Members.Count === 10_000) {
+    THE_BLOCK_LIST_IS_FULL = true;
+    writeError("ERROR: The list of blocked recipients is full!");
+    return;
+  }
+  if (blockedSendersList.Members.Count > 9950) {
+    writeError("WARNING: The list of blocked recipients is almost full!");
+  }
+  const blockedSenders = collectionToArray(blockedSendersList.Members);
+  const foundEmailAddresses: ReadonlyArray<string> = blockedSenders.map(
+    (member) => member.AddressInformation.Address
+  );
+  let changed = false;
+  for (const recipient of recipients) {
+    if (recipient.Address && !foundEmailAddresses.includes(recipient.Address)) {
+      if (config.dryRun) {
+        writeProgress(
+          `Would have added blocked contact ${recipient.Address} to contact group`
+        );
+      } else {
+        writeProgress(
+          `Saving new blocked contact ${recipient.Address} to contact group`
+        );
+        blockedSendersList.Members.AddOneOff(recipient.Name, recipient.Address);
+        changed = true;
       }
     }
-    if (changed) {
+  }
+  if (changed) {
+    try {
       await blockedSendersList.Update(ews.ConflictResolutionMode.AutoResolve);
+    } catch (err) {
+      if (
+        err instanceof ews.ServiceResponseException &&
+        err.Message.includes(", Maximum distribution list entries exceeded.")
+      ) {
+        // Not exactly true, we might be trying to add too many at once. But use
+        // the same error for easier monitoring.
+        writeError("ERROR: The list of blocked recipients is full!");
+      }
     }
   }
 }
@@ -275,14 +297,24 @@ async function processOneNdrItem({
             config,
             webhookNotBefore,
           });
-          if (isHardBounce(errorCode)) {
-            await blockRecipients(
-              service,
-              collectionToArray(ndrAsEmail.ToRecipients),
-              config
+          // Try block: no matter what we do after the webhook, because we have
+          // informed Refapp of the NDR, we must mark it as processed even if
+          // later actions fail.
+          try {
+            if (isHardBounce(errorCode) && !THE_BLOCK_LIST_IS_FULL) {
+              await blockRecipients(
+                service,
+                collectionToArray(ndrAsEmail.ToRecipients),
+                config
+              );
+            }
+          } catch (err) {
+            writeError(
+              `ERROR after sending webhook: ${
+                "message" in err ? err.message : err.toString()
+              }`
             );
           }
-
           if (webhookResult === "success") {
             return "processed";
           }
