@@ -11,7 +11,7 @@ export function writeProgress(message: string) {
 export async function sleep(
   { ms }: { ms: number } = { ms: 1000 }
 ): Promise<void> {
-  new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function getConfigFromEnvironmentVariable<T>(
