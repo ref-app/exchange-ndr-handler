@@ -224,7 +224,14 @@ async function blockRecipients(
         writeProgress(
           `Saving new blocked contact ${recipient.Address} to contact group`
         );
-        blockedSendersList.Members.AddOneOff(recipient.Name, recipient.Address);
+        // Nothing reads the display name for identity, so it carries the block
+        // date, which is the only per-member timestamp Exchange gives us.
+        blockedSendersList.Members.AddOneOff(
+          `${new Date().toISOString().slice(0, 10)} ${
+            recipient.Name ?? ""
+          }`.trimEnd(),
+          recipient.Address
+        );
         changed = true;
       }
     }
