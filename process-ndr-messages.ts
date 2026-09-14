@@ -210,12 +210,18 @@ async function blockRecipients(
     writeError("WARNING: The list of blocked recipients is almost full!");
   }
   const blockedSenders = collectionToArray(blockedSendersList.Members);
+  // Compare lower-cased: no mail provider treats the local part as
+  // case-sensitive, so without this a bounce for Foo@x.com adds a second entry
+  // next to the foo@x.com we already block. Store the address as it arrived.
   const foundEmailAddresses: ReadonlyArray<string> = blockedSenders.map(
-    (member) => member.AddressInformation.Address
+    (member) => (member.AddressInformation.Address ?? "").toLowerCase()
   );
   let changed = false;
   for (const recipient of recipients) {
-    if (recipient.Address && !foundEmailAddresses.includes(recipient.Address)) {
+    if (
+      recipient.Address &&
+      !foundEmailAddresses.includes(recipient.Address.toLowerCase())
+    ) {
       if (config.dryRun) {
         writeProgress(
           `Would have added blocked contact ${recipient.Address} to contact group`
