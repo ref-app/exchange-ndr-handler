@@ -201,8 +201,7 @@ const blockListEmergencyRemovals = 200;
 
 /**
  * Remove the oldest blocked recipients to make room. This is only a fallback:
- * clean-account.ts is what normally keeps the list small. Members with no
- * block date are left alone, the same as there, because their age is unknown.
+ * clean-account.ts is what normally keeps the list small.
  */
 async function makeRoomOnBlockList(group: ews.ContactGroup) {
   const oldest = collectionToArray(group.Members)

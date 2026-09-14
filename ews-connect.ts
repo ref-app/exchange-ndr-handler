@@ -111,9 +111,8 @@ export async function findOrCreateContactGroup(
  * "2026-09-11 someone@example.com", because Exchange keeps no timestamp of its
  * own for a distribution list member.
  *
- * Returns "" for members added before we wrote dates. Callers must exclude
- * those rather than treat them as old: their age is unknown, so removing them
- * would be a guess. YYYY-MM-DD compares correctly as plain text.
+ * Returns "" when the display name carries no date. YYYY-MM-DD compares
+ * correctly as plain text, so no caller has to parse it.
  */
 export function blockedOn(member: ews.GroupMember): string {
   return (

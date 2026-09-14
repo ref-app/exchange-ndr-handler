@@ -169,12 +169,6 @@ const maxBlockedRecipientRemovals = 100;
  * process-ndr-messages.ts. Drop the ones that have aged out, so that the list
  * never grows into the Exchange limit — at which point blocking stops
  * altogether and we start mailing addresses we know are dead.
- *
- * Members added before stamping existed have no prefix. We cannot tell how old
- * they are, so they are left alone rather than deleted on a guess. That makes
- * them a permanent floor under the list size, which is harmless at the few
- * hundred we have: they are all addresses that hard-bounced at some point, so
- * keeping them blocked forever costs nothing but a slot.
  */
 const purgeBlockedRecipients = async (
   service: ews.ExchangeService,
@@ -196,7 +190,6 @@ const purgeBlockedRecipients = async (
     const blocked = blockedOn(member);
     return blocked !== "" && blocked < cutoff;
   });
-  const undated = members.filter((member) => blockedOn(member) === "").length;
   const removals = expired.slice(0, maxBlockedRecipientRemovals);
 
   for (const member of removals) {
@@ -206,7 +199,7 @@ const purgeBlockedRecipients = async (
     await group.Update(ews.ConflictResolutionMode.AutoResolve);
   }
   stdout.write(
-    `${listName}: ${members.length} member(s), removed ${removals.length} of ${expired.length} expired, kept ${undated} undated, keeping anything blocked on or after ${cutoff}.\n`
+    `${listName}: ${members.length} member(s), removed ${removals.length} of ${expired.length} expired, keeping anything blocked on or after ${cutoff}.\n`
   );
 };
 
