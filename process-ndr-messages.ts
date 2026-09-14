@@ -4,6 +4,7 @@ import * as _ from "lodash";
 import axios from "axios";
 
 import {
+  blockedOn,
   collectionToArray,
   findOrCreateContactGroup,
   getConfigFromEnvironmentVariable,
@@ -184,6 +185,41 @@ async function invokeWebhook({
 /** Emergency boolean to block impossible processing */
 let THE_BLOCK_LIST_IS_FULL = false;
 
+/**
+ * Make room when the list gets this close to the Exchange limit of 10 000.
+ * The nightly clean in clean-account.ts normally holds it near 5 400, so
+ * reaching this means that clean has stopped running.
+ */
+const blockListCeiling = 9800;
+
+/**
+ * How many of the oldest members to remove when we reach the ceiling. That is
+ * about a week of blocks, so while the nightly clean is broken this fires
+ * about once a week rather than on every one of the 288 runs in a day.
+ */
+const blockListEmergencyRemovals = 200;
+
+/**
+ * Remove the oldest blocked recipients to make room. This is only a fallback:
+ * clean-account.ts is what normally keeps the list small. Members with no
+ * block date are left alone, the same as there, because their age is unknown.
+ */
+async function makeRoomOnBlockList(group: ews.ContactGroup) {
+  const oldest = collectionToArray(group.Members)
+    .filter((member) => blockedOn(member) !== "")
+    .sort((a, b) => blockedOn(a).localeCompare(blockedOn(b)))
+    .slice(0, blockListEmergencyRemovals);
+  for (const member of oldest) {
+    group.Members.Remove(member);
+  }
+  if (oldest.length > 0) {
+    await group.Update(ews.ConflictResolutionMode.AutoResolve);
+    writeProgress(
+      `Removed the ${oldest.length} oldest blocked recipients to make room.`
+    );
+  }
+}
+
 async function blockRecipients(
   service: ews.ExchangeService,
   recipients: ReadonlyArray<ews.EmailAddress>,
@@ -201,13 +237,18 @@ async function blockRecipients(
     writeError("ERROR: No contact group to add blocked recipients to.");
     return;
   }
+  if (blockedSendersList.Members.Count >= blockListCeiling) {
+    // Getting here means the nightly clean has stopped. Make room so that
+    // blocking keeps working, and make the real problem loud.
+    writeError(
+      `ERROR: ${blockedSendersList.Members.Count} blocked recipients, the nightly clean is not keeping up!`
+    );
+    await makeRoomOnBlockList(blockedSendersList);
+  }
   if (blockedSendersList.Members.Count === 10_000) {
     THE_BLOCK_LIST_IS_FULL = true;
     writeError("ERROR: The list of blocked recipients is full!");
     return;
-  }
-  if (blockedSendersList.Members.Count > 9950) {
-    writeError("WARNING: The list of blocked recipients is almost full!");
   }
   const blockedSenders = collectionToArray(blockedSendersList.Members);
   // Compare lower-cased: no mail provider treats the local part as

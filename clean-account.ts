@@ -4,6 +4,7 @@ import { isNumber } from "lodash";
 import { argv, exit, stderr, stdout } from "process";
 import {
   type Identifier,
+  blockedOn,
   collectionToArray,
   findOrCreateContactGroup,
   getConfigFromEnvironmentVariable,
@@ -188,19 +189,14 @@ const purgeBlockedRecipients = async (
     stderr.write(`Found no single contact group named ${listName}.\n`);
     return;
   }
-  const blockedOn = (member: ews.GroupMember) =>
-    /^\d{4}-\d{2}-\d{2}/.exec(member.AddressInformation.Name ?? "")?.[0];
-
   // YYYY-MM-DD sorts correctly as plain text, so no date parsing is needed.
   const cutoff = before.toISOString().slice(0, 10);
   const members = collectionToArray(group.Members);
   const expired = members.filter((member) => {
     const blocked = blockedOn(member);
-    return blocked !== undefined && blocked < cutoff;
+    return blocked !== "" && blocked < cutoff;
   });
-  const undated = members.filter(
-    (member) => blockedOn(member) === undefined
-  ).length;
+  const undated = members.filter((member) => blockedOn(member) === "").length;
   const removals = expired.slice(0, maxBlockedRecipientRemovals);
 
   for (const member of removals) {

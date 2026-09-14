@@ -105,6 +105,22 @@ export async function findOrCreateContactGroup(
   return createdItem;
 }
 
+/**
+ * The date a recipient was blocked. process-ndr-messages.ts writes it as a
+ * prefix on the display name of the contact group member, for example
+ * "2026-09-11 someone@example.com", because Exchange keeps no timestamp of its
+ * own for a distribution list member.
+ *
+ * Returns "" for members added before we wrote dates. Callers must exclude
+ * those rather than treat them as old: their age is unknown, so removing them
+ * would be a guess. YYYY-MM-DD compares correctly as plain text.
+ */
+export function blockedOn(member: ews.GroupMember): string {
+  return (
+    /^\d{4}-\d{2}-\d{2}/.exec(member.AddressInformation.Name ?? "")?.[0] ?? ""
+  );
+}
+
 export function collectionToArray<T extends ews.ComplexProperty>(
   collection: ews.ComplexPropertyCollection<T>
 ): ReadonlyArray<T> {
