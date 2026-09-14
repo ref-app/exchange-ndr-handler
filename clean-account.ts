@@ -4,6 +4,10 @@ import { isNumber } from "lodash";
 import { argv, exit, stderr, stdout } from "process";
 import {
   type Identifier,
+  blockedOn,
+  collectionToArray,
+  findOrCreateContactGroup,
+  getConfigFromEnvironmentVariable,
   identifiersFromNames,
   withEwsConnection,
   sleep,
@@ -145,6 +149,60 @@ const purgeItems = async ({
   }
 };
 
+/**
+ * How long a blocked recipient is kept. At the rate we have been blocking
+ * addresses, about 30 a day, this settles the list near 5 400 members, well
+ * clear of the Exchange limit of 10 000 for a distribution list.
+ */
+const blockedRecipientRetentionDays = 180;
+
+/**
+ * Most blocked recipients to delete in a single run, roughly three times the
+ * 30 a day we expect to expire. The log line below reports how many were still
+ * expired when the cap was hit, so raise this if that stops reaching zero.
+ */
+const maxBlockedRecipientRemovals = 100;
+
+/**
+ * Blocked recipients carry the date they were blocked as a prefix on their
+ * display name, e.g. "2026-09-11 someone@example.com", written by
+ * process-ndr-messages.ts. Drop the ones that have aged out, so that the list
+ * never grows into the Exchange limit — at which point blocking stops
+ * altogether and we start mailing addresses we know are dead.
+ */
+const purgeBlockedRecipients = async (
+  service: ews.ExchangeService,
+  before: Date
+) => {
+  const config = getConfigFromEnvironmentVariable<{
+    blockedRecipientsListName?: string;
+  }>("NDR_PROCESSOR_CONFIG");
+  const listName = config?.blockedRecipientsListName ?? "Blocked Recipients";
+  const group = await findOrCreateContactGroup(service, listName);
+  if (!group) {
+    stderr.write(`Found no single contact group named ${listName}.\n`);
+    return;
+  }
+  // YYYY-MM-DD sorts correctly as plain text, so no date parsing is needed.
+  const cutoff = before.toISOString().slice(0, 10);
+  const members = collectionToArray(group.Members);
+  const expired = members.filter((member) => {
+    const blocked = blockedOn(member);
+    return blocked !== "" && blocked < cutoff;
+  });
+  const removals = expired.slice(0, maxBlockedRecipientRemovals);
+
+  for (const member of removals) {
+    group.Members.Remove(member);
+  }
+  if (removals.length > 0) {
+    await group.Update(ews.ConflictResolutionMode.AutoResolve);
+  }
+  stdout.write(
+    `${listName}: ${members.length} member(s), removed ${removals.length} of ${expired.length} expired, keeping anything blocked on or after ${cutoff}.\n`
+  );
+};
+
 let purgeBefore: number;
 let keepTrashMonths = 3;
 
@@ -194,4 +252,11 @@ withEwsConnection(async (service) => {
     deleteMode: ews.DeleteMode.HardDelete,
     sleepSeconds: 2,
   });
+  // Deliberately not derived from purgeBefore: how long we keep mail and how
+  // long we keep a block are unrelated, and the block window is far longer.
+  const blockedBefore = new Date();
+  blockedBefore.setDate(
+    blockedBefore.getDate() - blockedRecipientRetentionDays
+  );
+  await purgeBlockedRecipients(service, blockedBefore);
 });

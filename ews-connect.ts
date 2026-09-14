@@ -11,7 +11,7 @@ export function writeProgress(message: string) {
 export async function sleep(
   { ms }: { ms: number } = { ms: 1000 }
 ): Promise<void> {
-  new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function getConfigFromEnvironmentVariable<T>(
@@ -103,6 +103,21 @@ export async function findOrCreateContactGroup(
 
   await createdItem.Save(rootFolder);
   return createdItem;
+}
+
+/**
+ * The date a recipient was blocked. process-ndr-messages.ts writes it as a
+ * prefix on the display name of the contact group member, for example
+ * "2026-09-11 someone@example.com", because Exchange keeps no timestamp of its
+ * own for a distribution list member.
+ *
+ * Returns "" when the display name carries no date. YYYY-MM-DD compares
+ * correctly as plain text, so no caller has to parse it.
+ */
+export function blockedOn(member: ews.GroupMember): string {
+  return (
+    /^\d{4}-\d{2}-\d{2}/.exec(member.AddressInformation.Name ?? "")?.[0] ?? ""
+  );
 }
 
 export function collectionToArray<T extends ews.ComplexProperty>(

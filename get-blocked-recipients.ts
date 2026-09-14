@@ -33,7 +33,9 @@ async function getPreblockedAddresses(service: ews.ExchangeService) {
   if (blockedSendersList) {
     const members = collectionToArray(blockedSendersList.Members);
     for (const member of members) {
-      process.stdout.write(member.AddressInformation.Address + "\n");
+      // Name first: its prefix is the block date, so `cut -d' ' -f1` counts them.
+      const { Name, Address } = member.AddressInformation;
+      process.stdout.write(`${Name ?? ""}\t${Address}\n`);
     }
   }
 }
